@@ -21,10 +21,12 @@ pub struct Adding {
 }
 
 /// Which skills a Command is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Which {
     Chosen,
     Every,
+    /// These, by folder, as ticked in Import.
+    These(Vec<String>),
 }
 
 /// Where adding has got to.
@@ -304,6 +306,7 @@ impl MainView {
                 .filter(|skill| !skill.managed())
                 .map(|skill| skill.folder.clone())
                 .collect(),
+            Which::These(folders) => folders,
         };
         if folders_to_take.is_empty() {
             Toast::new(t!(

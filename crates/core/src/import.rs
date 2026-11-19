@@ -167,6 +167,21 @@ pub fn gather(home: &Path, known: &[Known]) -> Gathered {
     gathered
 }
 
+/// The servers chosen, each as the version chosen, as one `mcpServers` block to paste into Add Server.
+pub fn pasted(chosen: &[(&Found, usize)]) -> String {
+    let block: Map<String, Value> = chosen
+        .iter()
+        .filter_map(|(found, version)| {
+            Some((
+                found.name.clone(),
+                found.versions.get(*version)?.server.clone(),
+            ))
+        })
+        .collect();
+    serde_json::to_string_pretty(&serde_json::json!({ "mcpServers": block }))
+        .expect("JSON values always print")
+}
+
 /// The servers under `key` in a JSON object, by name.
 fn servers_in(value: &Value, key: &str) -> Vec<(String, Value)> {
     value

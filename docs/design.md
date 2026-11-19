@@ -184,9 +184,12 @@ A client gets HTTP once its own tool has written or connected to the entry Patch
 These are the files and keys present on this Mac on 2026-11-18. Each adapter's exact entry shape is checked
 against the client's current docs when it's written, with a fixture test per client.
 
-**Import.** The first time a client is connected, Patchbay offers to move the servers it already has into your layer,
-with any literal tokens moved into the Keychain, and then to remove them from the client. Nothing is removed without
-asking.
+**Import.** Servers ▸ Import from Your Clients… lists every server the clients keep of their own, for the person and in
+each Claude Code project (local servers in `~/.claude.json`, and a project's `.mcp.json`), and the person's own skills,
+by name, with only identical setups put together. Nothing is ticked: the person ticks each to bring in, the version
+where they differ, and each place to take it out of. The first time a client is connected, Patchbay offers to move the
+servers it already has into your layer, with any literal tokens moved into the Keychain, and then to remove them from
+the client. Nothing is removed without asking.
 
 ## Skills
 

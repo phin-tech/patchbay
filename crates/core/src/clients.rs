@@ -465,7 +465,7 @@ impl Client {
 
     /// The servers the client has of its own, not Patchbay's, by their names in its config, each as the JSON a
     /// README gives (`command`, `args`, `env`, `url`, `headers`), which [`crate::paste::read`] reads. Only its
-    /// user-level ones: a Claude Code project's servers stay with the project.
+    /// user-level ones; a Claude Code project's are found by [`crate::import::gather`].
     pub fn own_servers(self, home: &Path) -> Vec<(String, Value)> {
         let Ok(text) = std::fs::read_to_string(self.config_path(home)) else {
             return Vec::new();

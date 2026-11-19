@@ -94,6 +94,7 @@ pub fn menus() -> Vec<Menu> {
             vec![
                 run(t!("Add Server…"), "servers.add"),
                 run(t!("Add Team…"), "servers.add-team"),
+                run(t!("Import from Your Clients…"), "servers.import"),
                 run(t!("Take Over the Client's Servers…"), "clients.take-over"),
                 run(t!("Export Servers…"), "servers.export"),
                 run(t!("Remove Team"), "servers.remove-team"),

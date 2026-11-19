@@ -65,7 +65,20 @@ Patchbay from then on. Every other tool you connect gets them too. The tool's co
 
 Only the servers you add leave the tool: one you delete from the paste before choosing **Add** stays where it is. So
 does one Patchbay already has a server by the same name for, rather than replacing yours. Only a tool's user-level
-servers are taken over; a Claude Code project's own servers stay with the project.
+servers are taken over this way; **Import** brings in a Claude Code project's too.
+
+## Importing what your tools have
+
+**Import from Your Clients…** in the Servers menu lists every server your tools keep of their own: for you, in each
+Claude Code project (its local servers, and a project's `.mcp.json`), and your own skills. Nothing is ticked to begin
+with: tick each one to bring in, and where a server is set up differently in two places, tick which one. Under each,
+tick the tools to take it out of; a copy you leave unticked stays where it is. One Patchbay already has is shown, and
+can't be brought in twice. A key in a server is shown only by its name.
+
+**Import** opens the servers in Add Server, as Take Over does, so you see what's added and which keys go to the
+Keychain. Choose **Add**, and they're taken out where you ticked, each file backed up first, as it was:
+`<file>.patchbay-take-over-backup` beside it, and a project's `.mcp.json` in Patchbay's own folder, so nothing is left
+in its repository. A tool a server leaves is connected to Patchbay, so it still has it.
 
 ## Skills
 

@@ -1,15 +1,16 @@
 //! The Clients place: every AI client Patchbay knows, and the one chosen, with how it's given the gateway.
 
 use gpui_kit::component::checkbox::Checkbox;
+use patchbay_core::import::{Kept, Origin, take_out};
 use patchbay_core::manifest::edit;
 
 use super::*;
 
-/// A client whose own servers, by name, are in the editor, to come out of it once Patchbay has them.
+/// Servers in the editor that are to come out of the clients they're from once Patchbay has them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TakingOver {
-    pub client: Client,
-    pub names: Vec<String>,
+    /// Each server, by name, and where it's to come out of: a client's own, or one of its projects'.
+    pub taken: Vec<(Origin, String)>,
 }
 
 impl MainView {
@@ -412,9 +413,16 @@ impl MainView {
         mark_offered(client, cx);
         self.start_editing(Editing::New, window, cx);
         self.fill_paste(&own.pasted, window, cx);
-        self.taking_over = Some(TakingOver {
+        let origin = Origin {
             client,
-            names: own.names,
+            kept: Kept::User,
+        };
+        self.taking_over = Some(TakingOver {
+            taken: own
+                .names
+                .into_iter()
+                .map(|name| (origin.clone(), name))
+                .collect(),
         });
     }
 
@@ -428,36 +436,49 @@ impl MainView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let client = taking_over.client;
-        let taken: Vec<String> = taking_over
-            .names
+        let taken: Vec<(Origin, String)> = taking_over
+            .taken
             .into_iter()
-            .filter(|name| saved.contains(&name.as_str()))
+            .filter(|(_, name)| saved.contains(&name.as_str()))
             .collect();
         if taken.is_empty() {
             return false;
         }
+        let Some(backups) = cx
+            .try_global::<Running>()
+            .map(|running| running.gateway.home().root().join("backups"))
+        else {
+            return false;
+        };
         let home = client_home(cx);
-        if let Err(error) = client.remove_own(&home, &taken) {
+        let failed = take_out(&home, &backups, &taken);
+        let mut clients: Vec<Client> = taken.iter().map(|(origin, _)| origin.client).collect();
+        clients.sort();
+        clients.dedup();
+        if let Some((origin, error)) = failed.first() {
             Toast::error(t!(
-                "Patchbay has them, but couldn't take them out of %{client}: %{error}",
-                client = client.name(),
+                "Patchbay has them, but couldn't take them all out of %{client}: %{error}",
+                client = origin.client.name(),
                 error = error.to_string()
             ))
             .show(window, cx);
-            return true;
-        }
-        Toast::new(t!(
-            "Took over %{count} servers from %{client}: restart it to reach them through Patchbay",
-            count = taken.len(),
-            client = client.name()
-        ))
-        .key(format!("take-over-{}", client.slug()))
-        .show(window, cx);
-        if client.connected(&home) {
-            self.sync(window, cx);
         } else {
-            self.connect(client, window, cx);
+            let names: Vec<&str> = clients.iter().map(|client| client.name()).collect();
+            Toast::new(t!(
+                "Took over %{count} servers: restart %{clients} to reach them through Patchbay",
+                count = taken.len(),
+                clients = names.join(", ")
+            ))
+            .key("take-over")
+            .show(window, cx);
+        }
+        // Every client a server came out of reaches it through Patchbay from now on, so none is left without it.
+        for client in clients {
+            if client.connected(&home) {
+                self.sync(window, cx);
+            } else {
+                self.connect(client, window, cx);
+            }
         }
         true
     }

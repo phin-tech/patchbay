@@ -35,6 +35,7 @@ mod clients;
 use clients::Given;
 mod editor;
 mod form;
+mod import;
 mod query;
 mod rack;
 mod servers;
@@ -139,6 +140,8 @@ pub struct MainView {
     pub editor: Option<Editor>,
     /// Servers being chosen to export, shown in place of the chosen one.
     pub exporting: Option<share::Exporting>,
+    /// What the clients have, being chosen to import, shown in place of the chosen server.
+    pub importing: Option<import::Importing>,
     /// The skills on this Mac, the one chosen, and any being added.
     pub skills: skills::SkillsState,
     /// The manifests' profiles, `default` first.
@@ -229,6 +232,7 @@ impl MainView {
             client: None,
             editor: None,
             exporting: None,
+            importing: None,
             skills: skills::SkillsState::default(),
             profiles: Vec::new(),
             profile_servers: BTreeMap::new(),
@@ -291,6 +295,7 @@ impl MainView {
             "servers.add" => self.start_editing(Editing::New, window, cx),
             "servers.add-team" => self.start_editing(Editing::Team, window, cx),
             "servers.export" => self.start_export(window, cx),
+            "servers.import" => self.start_import(cx),
             "clients.take-over" => self.start_taking_over(window, cx),
             "clients.connect" => self.power_chosen_client(true, window, cx),
             "clients.disconnect" => self.power_chosen_client(false, window, cx),

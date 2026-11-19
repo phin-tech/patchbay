@@ -34,6 +34,7 @@ pub const COMMANDS: &[&str] = &[
     "servers.add-team",
     "servers.edit",
     "servers.export",
+    "servers.import",
     "servers.reload",
     "servers.remove-team",
     "skills.add",

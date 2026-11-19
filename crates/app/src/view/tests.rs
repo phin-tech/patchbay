@@ -787,3 +787,63 @@ fn hiding_the_servers_or_the_skills_on_the_patch_bay_leaves_what_each_client_is_
     drag(from, to, cx);
     assert_eq!(plugged(&view, Client::Codex, cx), ["beta"]);
 }
+
+#[gpui_kit::test]
+fn import_brings_in_only_what_is_ticked_and_takes_it_out_only_where_ticked(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, "");
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    let project = home.join("src/app");
+    std::fs::create_dir_all(&project).unwrap();
+    let claude = claude_with_a_project_server(&project);
+    std::fs::write(home.join(".claude.json"), claude).unwrap();
+    let cursor = Client::Cursor.config_path(&home);
+    std::fs::create_dir_all(cursor.parent().unwrap()).unwrap();
+    std::fs::write(
+        &cursor,
+        r#"{"mcpServers": {"notion": {"url": "https://mcp.notion.com/mcp"}}}"#,
+    )
+    .unwrap();
+    view.update_in(cx, |view, window, cx| {
+        view.sync(window, cx);
+        view.run("servers.import", window, cx);
+    });
+    // Nothing is ticked to begin with.
+    view.read_with(cx, |view, _| {
+        let importing = view.importing.as_ref().unwrap();
+        assert!(importing.nothing_ticked());
+    });
+    let origin = patchbay_core::import::Origin {
+        client: Client::ClaudeCode,
+        kept: patchbay_core::import::Kept::InProject(project.clone()),
+    };
+    view.update_in(cx, |view, window, cx| {
+        view.toggle_import("drawsimple", cx);
+        view.toggle_out(&origin, "drawsimple", cx);
+        view.run_import(window, cx);
+        view.save_editor(window, cx);
+    });
+    let mine = manifest(cx);
+    assert!(mine.contains("[servers.drawsimple]"), "{mine}");
+    assert!(!mine.contains("notion"), "notion wasn't ticked: {mine}");
+    assert!(
+        !mine.contains("s3cr3t"),
+        "the key went to the Keychain: {mine}"
+    );
+    let left = std::fs::read_to_string(home.join(".claude.json")).unwrap();
+    assert!(!left.contains("drawsimple"), "{left}");
+    assert!(std::fs::read_to_string(&cursor).unwrap().contains("notion"));
+    assert!(
+        home.join(".claude.json.patchbay-take-over-backup")
+            .is_file()
+    );
+}
+
+/// Claude Code with a server in one project only.
+fn claude_with_a_project_server(project: &std::path::Path) -> String {
+    format!(
+        r#"{{"projects": {{"{}": {{"mcpServers": {{"drawsimple": {{"type": "stdio", "command": "drawsimple", "args": [], "env": {{"DRAW_TOKEN": "s3cr3t"}}}}}}}}}}}}"#,
+        project.display()
+    )
+}
