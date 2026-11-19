@@ -56,7 +56,7 @@ pub fn init(cx: &mut App) {
 }
 
 /// [`init`], with the settings kept at `path`, or nowhere.
-fn init_at(path: Option<PathBuf>, cx: &mut App) {
+pub(crate) fn init_at(path: Option<PathBuf>, cx: &mut App) {
     let settings = path.as_deref().map(Settings::load).unwrap_or_default();
     update::set_beta(settings.beta_updates);
     theme::set_text_scale(settings.text_scale, cx);
@@ -151,6 +151,21 @@ fn choose_skills_folder(client: Client, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Shows or hides the servers on the patch bay, or with `RackSection::Skills`, the skills.
+pub fn toggle_patch_bay(section: RackSection, cx: &mut App) {
+    change(cx, |settings| match section {
+        RackSection::Servers => settings.patch_bay_servers = !settings.patch_bay_servers,
+        RackSection::Skills => settings.patch_bay_skills = !settings.patch_bay_skills,
+    });
+}
+
+/// A part of the patch bay that can be hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RackSection {
+    Servers,
+    Skills,
 }
 
 /// Whether the main window has the patch bay, and opens on it.
@@ -308,6 +323,25 @@ fn general(cx: &mut App) -> Div {
                         .label(t!("Show the patch bay, and open on it").into_owned())
                         .checked(settings.patch_bay)
                         .on_click(|on, _, cx| set_patch_bay(*on, cx)),
+                )
+                .child(
+                    v_flex()
+                        .pl_6()
+                        .gap_2()
+                        .child(
+                            Switch::new("patch-bay-servers")
+                                .label(t!("Show the servers on it").into_owned())
+                                .checked(settings.patch_bay_servers)
+                                .disabled(!settings.patch_bay)
+                                .on_click(|_, _, cx| toggle_patch_bay(RackSection::Servers, cx)),
+                        )
+                        .child(
+                            Switch::new("patch-bay-skills")
+                                .label(t!("Show the skills on it").into_owned())
+                                .checked(settings.patch_bay_skills)
+                                .disabled(!settings.patch_bay)
+                                .on_click(|_, _, cx| toggle_patch_bay(RackSection::Skills, cx)),
+                        ),
                 )
                 .when(login_item::needs_approval(), |this| {
                     this.child(

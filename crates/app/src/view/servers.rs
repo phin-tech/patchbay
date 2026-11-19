@@ -38,6 +38,7 @@ impl MainView {
         self.server = Some(name.to_string());
         self.editor = None;
         self.exporting = None;
+        self.importing = None;
         cx.notify();
     }
 
@@ -169,6 +170,9 @@ impl MainView {
         }
         if let Some(exporting) = &self.exporting {
             return self.export_panel(exporting, cx);
+        }
+        if let Some(importing) = &self.importing {
+            return self.import_panel(importing, cx);
         }
         let Some(server) = self
             .server

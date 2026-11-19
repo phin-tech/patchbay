@@ -162,14 +162,23 @@ impl MainView {
             .collect()
     }
 
+    /// The servers on the rack: every one, or none while Settings hides them.
+    pub(super) fn rack_servers(&self, cx: &App) -> &[ServerStatus] {
+        if crate::settings::current(cx).patch_bay_servers {
+            &self.servers
+        } else {
+            &[]
+        }
+    }
+
     /// The Cables plugged in now, as client and server, by their places on the rack.
-    fn patched(&self, clients: &[&ClientRow]) -> Vec<(usize, usize)> {
+    fn patched(&self, clients: &[&ClientRow], cx: &App) -> Vec<(usize, usize)> {
         clients
             .iter()
             .enumerate()
             .flat_map(|(at, row)| {
                 let given = self.given(row);
-                self.servers
+                self.rack_servers(cx)
                     .iter()
                     .enumerate()
                     .filter(move |(_, server)| given.contains(&server.name))
@@ -178,8 +187,12 @@ impl MainView {
             .collect()
     }
 
-    /// The skills on the rack, in its order: those Patchbay looks after first, then any of someone's own.
-    fn rack_skills(&self) -> Vec<Skill> {
+    /// The skills on the rack, in its order: those Patchbay looks after first, then any of someone's own; none while
+    /// Settings hides them.
+    fn rack_skills(&self, cx: &App) -> Vec<Skill> {
+        if !crate::settings::current(cx).patch_bay_skills {
+            return Vec::new();
+        }
         let mut skills = self.skills.list.clone();
         skills.sort_by_key(|skill| (!linkable(skill), skill.name.clone()));
         skills
@@ -330,20 +343,14 @@ impl MainView {
         let shown: Vec<&ClientRow> = rows.iter().collect();
         // As tall as the panel, from the window's height less its title bar, so the rails run to its foot.
         let height = f32::from(window.viewport_size().height) - 3. * rem;
-        let skills = self.rack_skills();
-        let rack = layout::layout(
-            shown.len(),
-            self.servers.len(),
-            skills.len(),
-            width,
-            height,
-            rem,
-        );
+        let skills = self.rack_skills(cx);
+        let servers: Vec<ServerStatus> = self.rack_servers(cx).to_vec();
+        let rack = layout::layout(shown.len(), servers.len(), skills.len(), width, height, rem);
         self.rack.layout = rack.clone();
         self.rack.clients = shown.iter().map(|row| row.client).collect();
         self.rack.skills = skills.iter().map(|skill| skill.folder.clone()).collect();
         let folders = super::skills::skill_folders(cx);
-        let patched = self.patched(&shown);
+        let patched = self.patched(&shown, cx);
         let drag = self.rack.drag.clone();
         let held = drag.as_ref().and_then(|drag| drag.held.clone());
         let mut leads: Vec<Lead> = patched
@@ -460,7 +467,7 @@ impl MainView {
             inner = inner.child(self.client_module(row, at, module, rem, ready, look, cx));
             inner = inner.children(screws(rack.ears[0], module.rect, rem, look));
         }
-        for (at, server) in self.servers.iter().enumerate() {
+        for (at, server) in servers.iter().enumerate() {
             let module = &rack.servers[at];
             inner = inner.child(self.server_module(server, at, module, &shown, rem, look, cx));
             inner = inner.children(screws(rack.ears[1], module.rect, rem, look));
@@ -524,6 +531,14 @@ impl MainView {
 /// Where things on the rack are in the window, as last drawn, for tests to press and let go.
 #[cfg(test)]
 impl MainView {
+    /// How many servers' and skills' modules the rack last drew.
+    pub(super) fn modules_shown(&self) -> (usize, usize) {
+        (
+            self.rack.layout.servers.len(),
+            self.rack.layout.skills.len(),
+        )
+    }
+
     fn on_screen(&self, spot: Spot) -> Point<Pixels> {
         self.rack.origin.get() + point(px(spot.x), px(spot.y))
     }

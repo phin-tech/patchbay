@@ -465,7 +465,7 @@ impl Client {
 
     /// The servers the client has of its own, not Patchbay's, by their names in its config, each as the JSON a
     /// README gives (`command`, `args`, `env`, `url`, `headers`), which [`crate::paste::read`] reads. Only its
-    /// user-level ones: a Claude Code project's servers stay with the project.
+    /// user-level ones; a Claude Code project's are found by [`crate::import::gather`].
     pub fn own_servers(self, home: &Path) -> Vec<(String, Value)> {
         let Ok(text) = std::fs::read_to_string(self.config_path(home)) else {
             return Vec::new();
@@ -487,9 +487,21 @@ impl Client {
         let path = self.config_path(home);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         back_up(&path, &text, ".patchbay-take-over-backup")?;
+        self.remove_own_backed_up(home, names)?;
+        Ok(path)
+    }
+
+    /// [`Client::remove_own`], for a file already backed up as it was before any change to it.
+    pub(crate) fn remove_own_backed_up(
+        self,
+        home: &Path,
+        names: &[String],
+    ) -> Result<(), ClientError> {
+        let path = self.config_path(home);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
         let names: Vec<&String> = names.iter().filter(|name| !is_ours(name)).collect();
         if self == Client::ClaudeCode && claude_code_remove(home, &names) {
-            return Ok(path);
+            return Ok(());
         }
         let shown = path.display().to_string();
         let changed = match self.format() {
@@ -505,8 +517,7 @@ impl Client {
                 }
             }),
         }?;
-        save(&path, &text, &changed)?;
-        Ok(path)
+        save(&path, &text, &changed)
     }
 
     /// The names of Patchbay's entries in the client's config under `home`.
@@ -631,6 +642,39 @@ fn json_names(text: &str, key: &str) -> Vec<String> {
         .ok()
         .and_then(|value| Some(value.get(key)?.as_object()?.keys().cloned().collect()))
         .unwrap_or_default()
+}
+
+/// Keeps the file at `path` as it is now, before a take-over changes it: at `to`, or beside it as
+/// `<file>.patchbay-take-over-backup`. Called once before every change a take-over makes to the file, so the backup
+/// is never of a file a change has already trimmed.
+pub(crate) fn back_up_once(path: &Path, to: Option<&Path>) -> Result<(), ClientError> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    match to {
+        None => back_up(path, &text, ".patchbay-take-over-backup"),
+        Some(to) => {
+            if text.is_empty() {
+                return Ok(());
+            }
+            crate::write_atomically(to, text.as_bytes()).map_err(|error| ClientError::Write {
+                path: to.display().to_string(),
+                error,
+            })
+        }
+    }
+}
+
+/// Writes `text` to `path`, which keeps its permissions, since these files hold other servers' tokens.
+pub(crate) fn write_keeping_permissions(path: &Path, text: &str) -> Result<(), ClientError> {
+    let write = |error| ClientError::Write {
+        path: path.display().to_string(),
+        error,
+    };
+    let permissions = std::fs::metadata(path).ok().map(|meta| meta.permissions());
+    crate::write_atomically(path, text.as_bytes()).map_err(write)?;
+    if let Some(permissions) = permissions {
+        std::fs::set_permissions(path, permissions).map_err(write)?;
+    }
+    Ok(())
 }
 
 /// Keeps `old`, the file at `path` as it was, beside it as `<file><suffix>`, unless it was empty. These files hold

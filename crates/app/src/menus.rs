@@ -76,6 +76,9 @@ pub fn menus() -> Vec<Menu> {
                 run(t!("Skills"), "view.skills"),
                 run(t!("Filter"), "view.filter"),
                 MenuItem::separator(),
+                run(t!("Servers on the Patch Bay"), "view.patch-bay-servers"),
+                run(t!("Skills on the Patch Bay"), "view.patch-bay-skills"),
+                MenuItem::separator(),
                 run(t!("Command Palette…"), "app.palette"),
                 MenuItem::separator(),
                 run(t!("Bigger Text"), "view.bigger-text"),
@@ -91,6 +94,7 @@ pub fn menus() -> Vec<Menu> {
             vec![
                 run(t!("Add Server…"), "servers.add"),
                 run(t!("Add Team…"), "servers.add-team"),
+                run(t!("Import from Your Clients…"), "servers.import"),
                 run(t!("Take Over the Client's Servers…"), "clients.take-over"),
                 run(t!("Export Servers…"), "servers.export"),
                 run(t!("Remove Team"), "servers.remove-team"),

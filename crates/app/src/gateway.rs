@@ -73,6 +73,7 @@ pub fn init(cx: &mut App) {
         let stand_in = home.root().join("client-home");
         init_with(home, Secrets::Memory, cx);
         seed_skills(&stand_in);
+        seed_servers(&stand_in);
         // A server of Codex's own, so a frame of Codex shows what Take Over offers.
         let _ = std::fs::write(
             stand_in.join(".codex/config.toml"),
@@ -88,6 +89,30 @@ pub fn init(cx: &mut App) {
         }
     }
     init_with(home, Secrets::FromEnv, cx);
+}
+
+/// Gives a capture's stand-in clients servers of their own, so a frame of Import shows what a row can be: one set up
+/// the same in two Claude Code projects, one set up two ways, one in a project's `.mcp.json`, and one Patchbay has.
+/// The keys are made up.
+fn seed_servers(home: &std::path::Path) {
+    let (app, site) = (home.join("src/app"), home.join("src/site"));
+    let _ = std::fs::create_dir_all(&app);
+    let _ = std::fs::create_dir_all(&site);
+    let draw = r#"{"type": "stdio", "command": "npx", "args": ["-y", "drawsimple-mcp"], "env": {"DRAW_TOKEN": "made-up"}}"#;
+    let claude = format!(
+        r#"{{"mcpServers": {{"notion": {{"type": "http", "url": "https://mcp.notion.com/mcp"}}}}, "projects": {{"{}": {{"mcpServers": {{"drawsimple": {draw}}}}}, "{}": {{"mcpServers": {{"drawsimple": {draw}}}}}}}}}"#,
+        app.display(),
+        site.display()
+    );
+    let _ = std::fs::write(home.join(".claude.json"), claude);
+    let _ = std::fs::write(
+        site.join(".mcp.json"),
+        r#"{"mcpServers": {"sentry": {"type": "http", "url": "https://mcp.sentry.dev/mcp"}}}"#,
+    );
+    let _ = std::fs::write(
+        home.join(".cursor/mcp.json"),
+        r#"{"mcpServers": {"notion": {"command": "npx", "args": ["-y", "@notionhq/notion-mcp-server"], "env": {"NOTION_TOKEN": "made-up"}}, "github": {"url": "https://api.githubcopilot.com/mcp/"}}}"#,
+    );
 }
 
 /// Puts two skills in a capture's stand-in home, so a frame of Skills shows what a row can be: one installed from a

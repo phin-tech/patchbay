@@ -35,6 +35,7 @@ impl MainView {
                 .placeholder(t!("Leave it empty to give them as servers").into_owned())
         });
         self.editor = None;
+        self.importing = None;
         self.place = Place::Servers;
         self.exporting = Some(Exporting {
             chosen: self
