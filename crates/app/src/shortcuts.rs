@@ -116,6 +116,14 @@ pub fn symbols(shortcut: &str) -> String {
     out
 }
 
+/// The first key bound to a Command, as the keymap writes it on a Mac: `cmd-k`.
+pub fn written_key_for(name: &str) -> Option<String> {
+    SHORTCUTS
+        .iter()
+        .find(|(_, bound, _)| *bound == name)
+        .map(|(shortcut, _, _)| shortcut.replace("primary", "cmd"))
+}
+
 /// The first key bound to a Command, as a Mac shows it.
 pub fn key_for(name: &str) -> Option<String> {
     SHORTCUTS

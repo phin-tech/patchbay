@@ -61,7 +61,8 @@ The same goes for skills from a private repository.
 
 ## Changes
 
-Patchbay checks each team when it opens and every hour after that. **Check Teams for Changes** checks at once. A team
+Patchbay checks each team when it opens and every hour after that, unless you turn that off in **Settings ▸ Teams**,
+which lists the teams you're subscribed to. **Check Teams for Changes** checks at once. A team
 with changes is listed above your servers. **Review** shows what changed: servers added, removed or changed, field by
 field, with the old and new value of each. Nothing changes until you choose **Accept**, which takes in exactly the
 commit you looked at. **Later** leaves it for now.

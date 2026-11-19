@@ -47,6 +47,9 @@ pub struct Settings {
     /// client is given stays as it is.
     pub patch_bay_servers: bool,
     pub patch_bay_skills: bool,
+    /// Whether the main window checks each subscribed team's repository for changes when it opens and every hour
+    /// after. Check Teams for Changes checks whatever this says.
+    pub check_teams: bool,
     /// A skills folder chosen for a client in place of the one it usually reads, by the client's slug: a path, which
     /// may start `~/`. Skills are linked there, by the app and `patchbay skills` alike.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -66,6 +69,7 @@ impl Default for Settings {
             patch_bay: true,
             patch_bay_servers: true,
             patch_bay_skills: true,
+            check_teams: true,
             skills_folders: BTreeMap::new(),
         }
     }
@@ -142,6 +146,7 @@ mod tests {
             patch_bay: false,
             patch_bay_servers: false,
             patch_bay_skills: true,
+            check_teams: false,
             skills_folders: [("cursor".to_string(), "~/dotfiles/skills".to_string())].into(),
         };
         settings.save(&path).unwrap();
@@ -174,6 +179,7 @@ mod tests {
             patch_bay: true,
             patch_bay_servers: true,
             patch_bay_skills: true,
+            check_teams: true,
             skills_folders: BTreeMap::new(),
         };
         let text = toml::to_string(&settings).unwrap();
@@ -188,6 +194,7 @@ mod tests {
         patch_bay = true
         patch_bay_servers = true
         patch_bay_skills = true
+        check_teams = true
         "#);
     }
 

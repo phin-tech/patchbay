@@ -1,4 +1,5 @@
-//! What the app remembers between runs that isn't a choice in Settings: where the main window was. Kept apart from
+//! What the app remembers between runs that isn't a choice in Settings: where the main window was, and whether
+//! Welcome has been shown. Kept apart from
 //! the settings, in `state.toml` beside them, since it changes all the time and nobody edits it.
 
 use std::fs;
@@ -13,6 +14,8 @@ use crate::files::write_atomically;
 #[serde(default)]
 pub struct State {
     pub window: Option<Frame>,
+    /// Whether Welcome has been shown, or wasn't needed, so it opens by itself only once.
+    pub welcomed: bool,
 }
 
 /// A window's place on the screen, in points from the top left of the main display.
@@ -90,6 +93,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("state-{}/state.toml", std::process::id()));
         let state = State {
             window: Some(frame(120.0, 80.0)),
+            welcomed: true,
         };
         state.save(&path).unwrap();
         assert_eq!(State::load(&path), state);

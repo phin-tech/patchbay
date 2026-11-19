@@ -930,3 +930,72 @@ fn a_teams_changes_wait_in_the_window_until_theyre_accepted(cx: &mut TestAppCont
         assert!(view.teams.reviewing.is_none());
     });
 }
+
+#[gpui_kit::test]
+fn the_servers_menu_turns_the_chosen_server_off_and_on_as_its_switch_does(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, &format!("{GITHUB}\n\n\n"));
+    let run = |name: &'static str, cx: &mut VisualTestContext| {
+        view.update_in(cx, |view, window, cx| {
+            view.choose_server("fetch", cx);
+            view.run(name, window, cx);
+        });
+        cx.update(|_, cx| cx.global::<gateway::Running>().reload_now());
+        view.update_in(cx, |view, window, cx| view.sync(window, cx));
+    };
+    run("servers.turn-off", cx);
+    assert!(manifest(cx).contains("enabled = false"), "{}", manifest(cx));
+    // Off already, so a second time changes nothing.
+    run("servers.turn-off", cx);
+    assert_eq!(manifest(cx).matches("enabled = false").count(), 1);
+    run("servers.turn-on", cx);
+    assert_eq!(manifest(cx), format!("{GITHUB}\n\n\n"));
+}
+
+#[gpui_kit::test]
+fn the_servers_menu_edits_your_own_server_but_not_a_teams(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, GITHUB);
+    view.update_in(cx, |view, window, cx| {
+        view.choose_server("fetch", cx);
+        view.run("servers.change", window, cx);
+        assert!(view.editor.is_some(), "your own opens in the editor");
+        view.editor = None;
+        view.start_editing(Editing::Team, window, cx);
+        view.fill_paste(
+            "[team]\nname = \"Phin Tech\"\n\n[servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\n",
+            window,
+            cx,
+        );
+        view.save_editor(window, cx);
+        cx.global::<gateway::Running>().reload_now();
+        view.sync(window, cx);
+        view.choose_server("sentry", cx);
+        view.run("servers.change", window, cx);
+        assert!(view.editor.is_none(), "a team's is the team's to change");
+    });
+}
+
+#[gpui_kit::test]
+fn the_tour_shows_each_steps_place_and_ends_where_it_started(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, GITHUB);
+    cx.simulate_keystrokes("cmd-3");
+    view.update_in(cx, |view, window, cx| view.run("app.tour", window, cx));
+    cx.run_until_parked();
+    let steps = crate::guides::overview(true);
+    view.read_with(cx, |view, _| {
+        assert!(view.tour.is_some());
+        assert_eq!(view.place, steps[0].1);
+    });
+    for (_, place) in steps.iter().skip(1) {
+        cx.simulate_keystrokes("right");
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| assert_eq!(view.place, *place));
+    }
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        assert!(view.tour.is_none());
+        assert_eq!(view.place, super::Place::Clients, "back where it started");
+    });
+    cx.simulate_keystrokes("cmd-2");
+    view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::Servers));
+}

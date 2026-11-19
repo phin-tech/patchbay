@@ -21,7 +21,10 @@ headless; `crates/app` is the GPUI front end. Read `CONTEXT.md` before naming an
   `view/teams.rs` subscribes and reviews, `crates/cli/src/teams.rs` is `patchbay teams`. A fetched manifest is never
   written under `teams/` until it's accepted, since the gateway runs whatever is there.
 - `login_item.rs`: Open at login, in Settings.
-- `menu_bar.rs`: the menu bar extra and its shortcut (`hotkey` in the settings file).
+- `menu_bar.rs`: the menu bar extra and its shortcut (`hotkey` in the settings file), which Settings changes while
+  the app runs.
+- `welcome.rs`: Welcome, on Typecase's frame, once at a first launch and from Help. `guides.rs`: the tour's steps,
+  which `view/tour.rs` runs over the main window; `view::run_in_front` runs a main window's Command from another.
 - `about.rs`: About, and what Keys (⌘/), Typecase's sheet over the main view, lists: every key by its menu. `logging.rs`: `tracing`, to stderr and
   `~/Library/Logs/tech.phin.patchbay/`; `crash.rs` writes a report there on a panic and says so at the next launch.
 - `opened.rs`: `patchbay:` links. Each target is something a web page may ask for, since one can.

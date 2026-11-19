@@ -29,6 +29,7 @@ use crate::gateway::Running;
 use crate::shortcuts::{CONTEXT, RunAction};
 use crate::{about, palette, restore, theme};
 use query::Query;
+use servers::ServerAction;
 
 mod clients;
 #[cfg(test)]
@@ -42,10 +43,13 @@ mod servers;
 mod share;
 mod skills;
 mod teams;
+mod tour;
 
 pub use editor::Editing;
 use editor::Editor;
 pub(crate) use skills::skill_folders;
+pub use tour::run_in_front;
+use typecase::tour::TourTargetExt as _;
 
 /// A Typecase card over the window, which holds the keyboard until it's done.
 enum Card {
@@ -167,11 +171,14 @@ pub struct MainView {
     _fields: Vec<Subscription>,
     _filters: Vec<Subscription>,
     _watch: Task<()>,
-    /// Checks the teams' repositories every so often.
+    /// Checks the teams' repositories every so often, while `checking_teams` says so.
     _teams: Task<()>,
+    checking_teams: bool,
     _appearance: Subscription,
     _bounds: Subscription,
     _settings: Subscription,
+    /// The tour, while it runs over the window.
+    tour: Option<(Entity<typecase::tour::Tour>, Subscription)>,
 }
 
 impl MainView {
@@ -253,22 +260,40 @@ impl MainView {
             _filters: filter_subscriptions,
             _watch: watch,
             _teams: Task::ready(()),
+            checking_teams: false,
             _appearance: appearance,
             _bounds: bounds,
             // A skills folder chosen in Settings changes where each client's skills are, so they're read again.
-            _settings: cx.observe_global_in::<crate::settings::Prefs>(window, |this, _, cx| {
-                this.sync_skills(cx);
-            }),
+            _settings: cx.observe_global_in::<crate::settings::Prefs>(
+                window,
+                |this, window, cx| {
+                    this.sync_skills(cx);
+                    this.follow_team_checks(window, cx);
+                },
+            ),
+            tour: None,
         };
         view.sync(window, cx);
-        // Not in a test, which checks teams itself; a capture's team is a repository on this Mac.
-        if cx
+        view.follow_team_checks(window, cx);
+        view
+    }
+
+    /// Starts or stops checking the teams every hour, as Settings says. Not in a test, which checks teams itself; a
+    /// capture's team is a repository on this Mac.
+    fn follow_team_checks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let wanted = cx
             .try_global::<Running>()
             .is_some_and(|running| running.background)
-        {
-            view._teams = Self::watch_teams(window, cx);
+            && crate::settings::current(cx).check_teams;
+        if wanted == self.checking_teams {
+            return;
         }
-        view
+        self.checking_teams = wanted;
+        self._teams = if wanted {
+            Self::watch_teams(window, cx)
+        } else {
+            Task::ready(())
+        };
     }
 
     /// Reads the gateway and the clients' configs again: what's chosen stays chosen while it's there, a client
@@ -320,6 +345,14 @@ impl MainView {
             "clients.layout-separate" => self.lay_out_chosen_client(Layout::PerServer, window, cx),
             "clients.layout-compact" => self.lay_out_chosen_client(Layout::Compact, window, cx),
             "servers.remove-team" => self.remove_chosen_team(window, cx),
+            "servers.change" => self.act_on_chosen_server(ServerAction::Edit, window, cx),
+            "servers.restart" => self.act_on_chosen_server(ServerAction::Restart, window, cx),
+            "servers.remove" => self.act_on_chosen_server(ServerAction::Remove, window, cx),
+            "servers.turn-on" => self.act_on_chosen_server(ServerAction::TurnOn, window, cx),
+            "servers.turn-off" => self.act_on_chosen_server(ServerAction::TurnOff, window, cx),
+            "servers.sign-in" => self.act_on_chosen_server(ServerAction::SignIn, window, cx),
+            "servers.sign-out" => self.act_on_chosen_server(ServerAction::SignOut, window, cx),
+            "servers.change-key" => self.act_on_chosen_server(ServerAction::ChangeKey, window, cx),
             "servers.reload" => self.reload(window, cx),
             "servers.edit" => edit_manifest(cx),
             "gateway.copy-url" => self.copy_url(window, cx),
@@ -342,6 +375,7 @@ impl MainView {
             "skills.remove" => self.remove_chosen_skill(window, cx),
             "app.palette" => self.open_palette(window, cx),
             "app.keys" => self.open_keys(window, cx),
+            "app.tour" => self.begin_tour(window, cx),
             _ => {
                 let ran = commands::run(name, window, cx);
                 debug_assert!(ran || !COMMANDS.contains(&name), "{name} has no case here");
@@ -467,50 +501,54 @@ impl MainView {
             .w(rems(SIDEBAR_WIDTH))
             .h_full()
             .child(
-                v_flex()
-                    .flex_1()
-                    .gap_0p5()
-                    .px_2()
-                    .pt_1()
-                    .when(patch_bay, |this| {
-                        this.child(place(
-                            Place::PatchBay,
-                            t!("Patch Bay").into_owned(),
-                            cables,
+                v_flex().flex_1().gap_0p5().px_2().pt_1().child(
+                    v_flex()
+                        .gap_0p5()
+                        .tour_target("places")
+                        .when(patch_bay, |this| {
+                            this.child(place(
+                                Place::PatchBay,
+                                t!("Patch Bay").into_owned(),
+                                cables,
+                                cx,
+                            ))
+                        })
+                        .child(place(
+                            Place::Servers,
+                            t!("Servers").into_owned(),
+                            self.servers.len(),
                             cx,
                         ))
-                    })
-                    .child(place(
-                        Place::Servers,
-                        t!("Servers").into_owned(),
-                        self.servers.len(),
-                        cx,
-                    ))
-                    .child(place(
-                        Place::Clients,
-                        t!("Clients").into_owned(),
-                        connected,
-                        cx,
-                    ))
-                    .child(place(
-                        Place::Skills,
-                        t!("Skills").into_owned(),
-                        self.skills.list.len(),
-                        cx,
-                    )),
-            )
-            .child(
-                h_flex().px_2().pb_1().child(
-                    Button::new("copy-url")
-                        .ghost()
-                        .xsmall()
-                        .label(t!("Copy Gateway URL").into_owned())
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.run("gateway.copy-url", window, cx);
-                        })),
+                        .child(place(
+                            Place::Clients,
+                            t!("Clients").into_owned(),
+                            connected,
+                            cx,
+                        ))
+                        .child(place(
+                            Place::Skills,
+                            t!("Skills").into_owned(),
+                            self.skills.list.len(),
+                            cx,
+                        )),
                 ),
             )
-            .child(footer)
+            .child(
+                v_flex()
+                    .tour_target("gateway")
+                    .child(
+                        h_flex().px_2().pb_1().child(
+                            Button::new("copy-url")
+                                .ghost()
+                                .xsmall()
+                                .label(t!("Copy Gateway URL").into_owned())
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.run("gateway.copy-url", window, cx);
+                                })),
+                        ),
+                    )
+                    .child(footer),
+            )
     }
 
     /// A panel's heading row: its title, and what it offers on the right.
@@ -612,6 +650,7 @@ impl MainView {
             .border_b_1()
             .border_color(cx.theme().border)
             .children(self.filter_for(place).map(small_field))
+            .tour_target("filter")
     }
 
     /// Puts the keyboard in the filter of the place shown.
@@ -643,7 +682,8 @@ impl Render for MainView {
             Place::PatchBay => columns.child(
                 shell::panel(false, cx)
                     .flex_1()
-                    .child(self.patch_bay(window, cx)),
+                    .child(self.patch_bay(window, cx))
+                    .tour_target("rack"),
             ),
             Place::Servers | Place::Clients | Place::Skills => {
                 let (list, detail) = match shown {
@@ -656,9 +696,15 @@ impl Render for MainView {
                         shell::panel(false, cx)
                             .flex_none()
                             .w(rems(LIST_WIDTH))
-                            .child(list),
+                            .child(list)
+                            .tour_target("list"),
                     )
-                    .child(shell::panel(false, cx).flex_1().child(detail))
+                    .child(
+                        shell::panel(false, cx)
+                            .flex_1()
+                            .child(detail)
+                            .tour_target("detail"),
+                    )
             }
         };
         shell::window(cx)
@@ -686,6 +732,8 @@ impl Render for MainView {
                     overlay(card).on_dismiss(cx.listener(|this, _, _, cx| this.close_card(cx))),
                 )
             })
+            // Last, so it's over everything else.
+            .children(self.tour.as_ref().map(|(tour, _)| tour.clone()))
     }
 }
 
