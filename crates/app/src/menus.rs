@@ -72,6 +72,8 @@ pub fn menus() -> Vec<Menu> {
             vec![
                 run(t!("Servers"), "view.servers"),
                 run(t!("Clients"), "view.clients"),
+                run(t!("Skills"), "view.skills"),
+                run(t!("Filter"), "view.filter"),
                 MenuItem::separator(),
                 run(t!("Command Palette…"), "app.palette"),
                 MenuItem::separator(),
@@ -94,6 +96,19 @@ pub fn menus() -> Vec<Menu> {
                 run(t!("Edit patchbay.toml…"), "servers.edit"),
                 MenuItem::separator(),
                 run(t!("Copy Gateway URL"), "gateway.copy-url"),
+            ],
+        ),
+        menu(
+            t!("Skills"),
+            vec![
+                run(t!("Add Skills…"), "skills.add"),
+                run(t!("Check for Skill Updates"), "skills.check"),
+                run(t!("Update All Skills"), "skills.update"),
+                MenuItem::separator(),
+                run(t!("Take Over Skill"), "skills.take-over"),
+                run(t!("Take Over Every Skill"), "skills.take-over-all"),
+                MenuItem::separator(),
+                run(t!("Remove Skill"), "skills.remove"),
             ],
         ),
         // GPUI finds the Window menu by this name to make it the system's, so it stays as it is.

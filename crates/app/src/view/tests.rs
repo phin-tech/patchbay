@@ -437,3 +437,57 @@ fn removing_a_team_takes_its_folder_out_and_leaves_your_servers(cx: &mut TestApp
     assert!(!folder);
     assert_eq!(mine, "# Mine, before a team is removed.\n");
 }
+
+#[gpui_kit::test]
+fn skills_found_in_a_pasted_source_are_installed_for_each_client_and_listed(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, "# Skills, from a folder on this Mac.\n");
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    let source = home.join("my-skills");
+    for name in ["review", "plan"] {
+        std::fs::create_dir_all(source.join("skills").join(name)).unwrap();
+        std::fs::write(
+            source.join("skills").join(name).join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: Helps with {name}\n---\n"),
+        )
+        .unwrap();
+    }
+    // A skill of the person's own, which is listed and left alone.
+    std::fs::create_dir_all(home.join(".cursor/skills/mine")).unwrap();
+    std::fs::write(
+        home.join(".cursor/skills/mine/SKILL.md"),
+        "---\nname: mine\ndescription: Of my own\n---\n",
+    )
+    .unwrap();
+    let line = format!(
+        "npx skills add {} --skill review -a claude-code",
+        source.display()
+    );
+    view.update_in(cx, |view, window, cx| {
+        view.run("skills.add", window, cx);
+        let field = view.skills.adding.as_ref().unwrap().field.clone();
+        field.update(cx, |field, cx| field.set_value(line.clone(), window, cx));
+        view.find_skills(window, cx);
+    });
+    cx.run_until_parked();
+    view.update_in(cx, |view, window, cx| view.install_skills(window, cx));
+    assert!(home.join(".claude/skills/review/SKILL.md").is_file());
+    assert!(!home.join(".agents/skills/plan").exists());
+    view.read_with(cx, |view, _| {
+        assert!(view.skills.adding.is_none());
+        let names: Vec<&str> = view
+            .skills
+            .list
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect();
+        assert_eq!(names, ["mine", "review"]);
+        assert_eq!(view.skills.chosen.as_deref(), Some("review"));
+    });
+    view.update_in(cx, |view, window, cx| {
+        view.skills.chosen = Some("mine".to_string());
+        view.run("skills.remove", window, cx);
+    });
+    assert!(home.join(".cursor/skills/mine/SKILL.md").is_file());
+}

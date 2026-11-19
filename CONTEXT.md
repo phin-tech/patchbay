@@ -35,3 +35,15 @@ _Avoid_: credential, env var
 **Bridge**: `patchbay bridge`, the gateway over stdio for a client that only runs commands.
 
 **Profile**: a set of servers exposed together at `/mcp/<profile>`; `default` is every enabled server.
+
+**Skill**: a folder with a `SKILL.md` (frontmatter `name` and `description`) that a client reads as instructions.
+_Avoid_: plugin, which is a Claude plugin that may hold skills
+
+**Source**: where skills come from, written as `npx skills add` takes it: `owner/repo`, `owner/repo@skill`, a git URL
+or a folder.
+
+**Store**: `~/.agents/skills`, where every installed skill is kept, shared with the `skills` CLI; a client's skills
+folder links to it.
+
+**Lock**: `~/.agents/.skill-lock.json`, the `skills` CLI's record of each skill's source and hash, which Patchbay
+writes too. A skill no lock records is the person's own.

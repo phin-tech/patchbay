@@ -1,4 +1,4 @@
-//! The main window, in Typecase's shell: a sidebar of places (Servers, Clients) on the window's colour, then a panel
+//! The main window, in Typecase's shell: a sidebar of places (Servers, Clients, Skills) on the window's colour, then a panel
 //! listing what's in the place chosen, and a panel with the one chosen. The cards over the window (the palette and
 //! Keys) are Typecase's.
 
@@ -36,6 +36,7 @@ mod editor;
 mod form;
 mod servers;
 mod share;
+mod skills;
 
 pub use editor::Editing;
 use editor::Editor;
@@ -51,6 +52,7 @@ enum Card {
 pub enum Place {
     Servers,
     Clients,
+    Skills,
 }
 
 /// An AI client as the window shows it.
@@ -129,6 +131,8 @@ pub struct MainView {
     pub editor: Option<Editor>,
     /// Servers being chosen to export, shown in place of the chosen one.
     pub exporting: Option<share::Exporting>,
+    /// The skills on this Mac, the one chosen, and any being added.
+    pub skills: skills::SkillsState,
     /// The manifests' profiles, `default` first.
     profiles: Vec<String>,
     /// Each profile's servers.
@@ -140,7 +144,10 @@ pub struct MainView {
     signing_in: BTreeSet<String>,
     /// Servers whose secrets are shown to be replaced, as a wrong or expired key is.
     replacing: BTreeSet<String>,
+    /// A field at the top of each place's list, narrowing it to what matches.
+    filters: Filters,
     _fields: Vec<Subscription>,
+    _filters: Vec<Subscription>,
     _watch: Task<()>,
     _appearance: Subscription,
     _bounds: Subscription,
@@ -170,6 +177,31 @@ impl MainView {
             }
             None => Task::ready(()),
         };
+        let filter = |window: &mut Window, cx: &mut Context<Self>| {
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Filter").into_owned()))
+        };
+        let filters = Filters {
+            servers: filter(window, cx),
+            clients: filter(window, cx),
+            skills: filter(window, cx),
+        };
+        // The list follows what's typed; Return gives the keyboard back to the window and its keys.
+        let follow = |field: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>| {
+            cx.subscribe_in(
+                field,
+                window,
+                |this, _, event: &InputEvent, window, cx| match event {
+                    InputEvent::Change => cx.notify(),
+                    InputEvent::PressEnter { .. } => this.focus.focus(window, cx),
+                    _ => {}
+                },
+            )
+        };
+        let filter_subscriptions = vec![
+            follow(&filters.servers, window, cx),
+            follow(&filters.clients, window, cx),
+            follow(&filters.skills, window, cx),
+        ];
         let mut view = Self {
             focus,
             card: None,
@@ -180,13 +212,16 @@ impl MainView {
             client: None,
             editor: None,
             exporting: None,
+            skills: skills::SkillsState::default(),
             profiles: Vec::new(),
             profile_servers: BTreeMap::new(),
             problems: Vec::new(),
             secrets: BTreeMap::new(),
             signing_in: BTreeSet::new(),
             replacing: BTreeSet::new(),
+            filters,
             _fields: Vec::new(),
+            _filters: filter_subscriptions,
             _watch: watch,
             _appearance: appearance,
             _bounds: bounds,
@@ -223,6 +258,7 @@ impl MainView {
                 .map(|row| row.client);
         }
         self.sync_secret_fields(window, cx);
+        self.sync_skills(cx);
         cx.notify();
     }
 
@@ -238,6 +274,24 @@ impl MainView {
             "gateway.copy-url" => self.copy_url(window, cx),
             "view.servers" => self.show(Place::Servers, cx),
             "view.clients" => self.show(Place::Clients, cx),
+            "view.skills" => self.show(Place::Skills, cx),
+            "view.filter" => self.focus_filter(window, cx),
+            "skills.take-over" => self.take_over_skills(skills::Which::Chosen, window, cx),
+            "skills.take-over-all" => self.take_over_skills(skills::Which::Every, window, cx),
+            "skills.add" => self.start_adding_skills(window, cx),
+            "skills.check" => self.check_skills(
+                Vec::new(),
+                patchbay_core::skills::Checking::Report,
+                window,
+                cx,
+            ),
+            "skills.update" => self.check_skills(
+                Vec::new(),
+                patchbay_core::skills::Checking::Apply,
+                window,
+                cx,
+            ),
+            "skills.remove" => self.remove_chosen_skill(window, cx),
             "app.palette" => self.open_palette(window, cx),
             "app.keys" => self.open_keys(window, cx),
             _ => {
@@ -358,6 +412,12 @@ impl MainView {
                         t!("Clients").into_owned(),
                         connected,
                         cx,
+                    ))
+                    .child(place(
+                        Place::Skills,
+                        t!("Skills").into_owned(),
+                        self.skills.list.len(),
+                        cx,
                     )),
             )
             .child(
@@ -432,6 +492,60 @@ fn field(label: impl Into<SharedString>, content: impl IntoElement, cx: &App) ->
         .child(div().flex_1().min_w_0().child(content))
 }
 
+/// The filter field over each place's list.
+struct Filters {
+    servers: Entity<InputState>,
+    clients: Entity<InputState>,
+    skills: Entity<InputState>,
+}
+
+impl MainView {
+    fn filter_for(&self, place: Place) -> &Entity<InputState> {
+        match place {
+            Place::Servers => &self.filters.servers,
+            Place::Clients => &self.filters.clients,
+            Place::Skills => &self.filters.skills,
+        }
+    }
+
+    /// What's typed in `place`'s filter.
+    fn filter_text(&self, place: Place, cx: &App) -> String {
+        self.filter_for(place).read(cx).value().trim().to_string()
+    }
+
+    /// The filter field, under a list's heading.
+    fn filter_field(&self, place: Place, cx: &App) -> Div {
+        div()
+            .flex_none()
+            .px_2()
+            .py_1p5()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                Input::new(self.filter_for(place))
+                    .small()
+                    .h(rems(24. / 13.)),
+            )
+    }
+
+    /// Puts the keyboard in the filter of the place shown.
+    fn focus_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.filter_for(self.place)
+            .read(cx)
+            .focus_handle(cx)
+            .focus(window, cx);
+    }
+}
+
+/// Whether every word of `query` is in one of `fields`, ignoring case: `aws cdk` matches `aws-cdk`.
+fn matches_filter(query: &str, fields: &[&str]) -> bool {
+    let fields: Vec<String> = fields.iter().map(|field| field.to_lowercase()).collect();
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .all(|word| fields.iter().any(|field| field.contains(word)))
+}
+
 /// A line saying what a choice means, small and quiet under it.
 fn hint(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
@@ -445,6 +559,7 @@ impl Render for MainView {
         let (list, detail) = match self.place {
             Place::Servers => (self.server_list(cx), self.server_detail(cx)),
             Place::Clients => (self.client_list(cx), self.client_detail(cx)),
+            Place::Skills => (self.skill_list(cx), self.skill_detail(cx)),
         };
         shell::window(cx)
             .relative()

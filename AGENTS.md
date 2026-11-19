@@ -14,6 +14,9 @@ headless; `crates/app` is the GPUI front end. Read `CONTEXT.md` before naming an
   `restore.rs` puts the main window back where it was (`state.toml`, beside the settings).
 - `language.rs` and `locales/app.toml`: the language, and translations keyed by the English text.
 - `crates/core/src/database.rs`: SQLite, with migrations; `crates/app/src/database.rs` opens it.
+- `crates/core/src/skills/`: skills, installed into the store and lock the `skills` CLI (skills.sh) uses, so both
+  manage the same ones; `docs/design.md` says how. `view/skills.rs` is the Skills place, `crates/cli/src/skills.rs`
+  `patchbay skills`. Tests give it a stand-in home (`Folders::new`), never the real `~/.agents`.
 - `login_item.rs`: Open at login, in Settings.
 - `menu_bar.rs`: the menu bar extra and its shortcut (`hotkey` in the settings file).
 - `about.rs`: About, and what Keys (⌘/), Typecase's sheet over the main view, lists: every key by its menu. `logging.rs`: `tracing`, to stderr and

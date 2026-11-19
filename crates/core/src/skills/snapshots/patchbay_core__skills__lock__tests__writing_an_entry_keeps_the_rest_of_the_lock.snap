@@ -1,0 +1,35 @@
+---
+source: crates/core/src/skills/lock.rs
+assertion_line: 192
+expression: "std::fs::read_to_string(&path).unwrap()"
+---
+{
+  "version": 3,
+  "skills": {
+    "old": {
+      "source": "o/r",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/o/r.git",
+      "skillPath": "skills/old/SKILL.md",
+      "skillFolderHash": "def",
+      "installedAt": "then",
+      "updatedAt": "now",
+      "future": 1
+    },
+    "new": {
+      "source": "o/r",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/o/r.git",
+      "skillPath": "skills/new/SKILL.md",
+      "skillFolderHash": "123",
+      "installedAt": "now",
+      "updatedAt": "now"
+    }
+  },
+  "dismissed": {
+    "findSkillsPrompt": true
+  },
+  "lastSelectedAgents": [
+    "codex"
+  ]
+}

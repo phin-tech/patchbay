@@ -31,6 +31,8 @@ pub const SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
     ("primary-n", "servers.add", None),
     ("primary-shift-n", "file.new", None),
     ("primary-1", "view.servers", None),
+    ("primary-3", "view.skills", None),
+    ("primary-f", "view.filter", None),
     ("primary-2", "view.clients", None),
     ("primary-w", "file.close", None),
     ("primary-m", "window.minimize", None),

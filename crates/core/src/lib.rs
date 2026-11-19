@@ -15,6 +15,7 @@ pub mod path;
 pub mod secrets;
 mod settings;
 pub mod share;
+pub mod skills;
 mod state;
 
 pub use files::write_atomically;

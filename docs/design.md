@@ -190,16 +190,31 @@ asking.
 
 ## Skills
 
-- **Sources** are git repos laid out as `skills/<name>/SKILL.md` (the layout of `phin-tech/skills` and the `skills`
-  CLI). They come from your layer or a team's `[skills]`.
-- **The store** is `~/Library/Application Support/Patchbay/skills/<name>/`. Each installed skill is symlinked into
-  each agent's folder you turn on: `~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `~/.cursor/skills`,
-  `~/.gemini/skills`.
-- **The lock** records each skill's source, ref, commit and folder hash. Updating fetches, compares hashes and shows
-  the diff of `SKILL.md` and its scripts before applying, since a skill is instructions and code an agent will run.
-- **Skills Patchbay didn't install are left alone.** Ones the `skills` CLI manages (`~/.agents/.skill-lock.json`) are
-  shown as "managed by skills", and other folders and symlinks as "unmanaged". Neither is overwritten. Adopting them
-  is a later, explicit action.
+Patchbay installs skills the way the `skills` CLI (skills.sh, `npx skills add -g`) installs them for every project, in
+the same folders and the same lock, so the two manage one set of skills and `npx skills list`, `check` and `update`
+see what Patchbay installed. (This replaces an earlier plan for a store and lock of Patchbay's own.)
+
+- **Sources** are written as the CLI takes them: `owner/repo`, `owner/repo@skill`, `owner/repo/path`, GitHub and
+  GitLab URLs (with `/tree/<ref>/<path>`), `github:`/`gitlab:`, a `#ref@skill` fragment, any other git URL
+  (git.phin.tech, SSH, `file://`), or a folder. A whole `npx skills add … --skill … -a …` line can be pasted into the
+  window or given to `patchbay skills add`. Repositories are searched by the CLI's rules: `SKILL.md` at the top,
+  `skills/` and its `.curated`/`.experimental`/`.system`, clients' own skills folders, `skills.sh.json`'s paths and
+  Claude plugin manifests, then any `SKILL.md` five deep. git runs with no prompts and a timeout.
+- **The store** is `~/.agents/skills/<name>/`, named as the CLI names it from the frontmatter. Each skill is linked
+  (relatively, as the CLI links) into the skills folder of each client that keeps its own: Claude Code
+  `~/.claude/skills`, Cursor `~/.cursor/skills`, VS Code `~/.copilot/skills`, Gemini CLI `~/.gemini/skills`,
+  opencode `~/.config/opencode/skills`. Codex and pi read the store itself. Claude Desktop, omp and PiG have no
+  folder the CLI knows, so they get none.
+- **The lock** is the CLI's `~/.agents/.skill-lock.json` (version 3, `XDG_STATE_HOME` moves it). Patchbay writes the
+  fields the CLI writes and keeps every other key. A GitHub skill's hash is its folder's git tree hash, any other's
+  the CLI's SHA-256 content hash, so either tool can check the other's. A lock Patchbay can't read is left alone
+  rather than started again.
+- **Updating** fetches each source once, compares hashes, and lists the files that changed before applying.
+- **Skills no lock records are left alone**: a folder or link of the person's own, in the store or a client's folder,
+  is shown as "Your own" and never replaced or removed. Installing over one is refused, and a client whose folder
+  already has one of that name is skipped and said so.
+- **Not yet**: installing what a manifest's `[skills]` names, project (not global) installs, and the CLI's
+  `well-known` and download sources.
 
 ## The app
 
