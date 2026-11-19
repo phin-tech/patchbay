@@ -734,3 +734,56 @@ fn a_skill_dragged_to_a_client_is_linked_into_its_folder_and_a_hard_wired_one_st
         );
     });
 }
+
+#[gpui_kit::test]
+fn hiding_the_servers_or_the_skills_on_the_patch_bay_leaves_what_each_client_is_given(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, TWO_SERVERS);
+    cx.update(|_, cx| crate::settings::init_at(None, cx));
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    gateway::seed_skills(&home);
+    view.update(cx, |view, cx| view.sync_skills(cx));
+    cx.run_until_parked();
+    let given = plugged(&view, Client::Pi, cx);
+    let shown = |cx: &mut VisualTestContext| view.read_with(cx, |view, _| view.modules_shown());
+    assert_eq!(shown(cx), (2, 2));
+    view.update_in(cx, |view, window, cx| {
+        view.run("view.patch-bay-servers", window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(cx), (0, 2));
+    // A skill can still be patched while the servers are hidden.
+    let (from, to) = view.read_with(cx, |view, _| {
+        (
+            view.skill_jack_on_screen(Client::Cursor, "code-review"),
+            view.client_on_screen(Client::Cursor),
+        )
+    });
+    drag(from, to, cx);
+    assert!(home.join(".cursor/skills/code-review/SKILL.md").is_file());
+    view.update_in(cx, |view, window, cx| {
+        view.run("view.patch-bay-skills", window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(cx), (0, 0));
+    view.update_in(cx, |view, window, cx| {
+        view.run("view.patch-bay-servers", window, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(shown(cx), (2, 0));
+    assert_eq!(plugged(&view, Client::Pi, cx), given);
+    // With the servers back, a Cable is dragged to a server as before.
+    let (from, to) = view.read_with(cx, |view, _| {
+        (
+            view.jack_on_screen(false, Client::Codex, "beta"),
+            view.client_on_screen(Client::Codex),
+        )
+    });
+    view.update_in(cx, |view, window, cx| {
+        view.give(Client::Codex, super::Given::Only(Vec::new()), window, cx);
+    });
+    cx.run_until_parked();
+    drag(from, to, cx);
+    assert_eq!(plugged(&view, Client::Codex, cx), ["beta"]);
+}

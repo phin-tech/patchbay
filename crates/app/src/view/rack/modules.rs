@@ -90,7 +90,7 @@ impl MainView {
             })
             .children(shapes);
         let mut jacks: Vec<Stateful<Div>> = self
-            .servers
+            .rack_servers(cx)
             .iter()
             .enumerate()
             .map(|(server, status)| {

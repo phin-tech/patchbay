@@ -43,6 +43,10 @@ pub struct Settings {
     /// Whether the main window has the patch bay, a rack of the clients and servers with a cable between each client
     /// and the servers it's given, and opens on it.
     pub patch_bay: bool,
+    /// Whether the patch bay shows the servers, and the skills. Hiding one draws it and its Cables no more; what each
+    /// client is given stays as it is.
+    pub patch_bay_servers: bool,
+    pub patch_bay_skills: bool,
     /// A skills folder chosen for a client in place of the one it usually reads, by the client's slug: a path, which
     /// may start `~/`. Skills are linked there, by the app and `patchbay skills` alike.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -60,6 +64,8 @@ impl Default for Settings {
             beta_updates: crate::VERSION.contains("-beta"),
             hide_dock: true,
             patch_bay: true,
+            patch_bay_servers: true,
+            patch_bay_skills: true,
             skills_folders: BTreeMap::new(),
         }
     }
@@ -134,6 +140,8 @@ mod tests {
             beta_updates: true,
             hide_dock: false,
             patch_bay: false,
+            patch_bay_servers: false,
+            patch_bay_skills: true,
             skills_folders: [("cursor".to_string(), "~/dotfiles/skills".to_string())].into(),
         };
         settings.save(&path).unwrap();
@@ -164,6 +172,8 @@ mod tests {
             beta_updates: false,
             hide_dock: true,
             patch_bay: true,
+            patch_bay_servers: true,
+            patch_bay_skills: true,
             skills_folders: BTreeMap::new(),
         };
         let text = toml::to_string(&settings).unwrap();
@@ -176,6 +186,8 @@ mod tests {
         beta_updates = false
         hide_dock = true
         patch_bay = true
+        patch_bay_servers = true
+        patch_bay_skills = true
         "#);
     }
 

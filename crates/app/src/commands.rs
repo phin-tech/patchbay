@@ -49,6 +49,8 @@ pub const COMMANDS: &[&str] = &[
     "view.dark",
     "view.filter",
     "view.patch-bay",
+    "view.patch-bay-servers",
+    "view.patch-bay-skills",
     "view.servers",
     "view.skills",
     "view.smaller-text",
@@ -95,6 +97,8 @@ pub fn run(name: &str, window: &mut Window, cx: &mut App) -> bool {
             typecase::theme::set_appearance(appearance, cx);
             cx.refresh_windows();
         }
+        "view.patch-bay-servers" => settings::toggle_patch_bay(settings::RackSection::Servers, cx),
+        "view.patch-bay-skills" => settings::toggle_patch_bay(settings::RackSection::Skills, cx),
         "view.bigger-text" => settings::step_text(1, cx),
         "view.smaller-text" => settings::step_text(-1, cx),
         "view.actual-text" => settings::step_text(0, cx),

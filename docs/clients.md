@@ -49,7 +49,9 @@ and the buttons beside it choose its layout. Each of those is in the Clients men
 below the servers and are patched to tools the same way; one of your own is hard-wired, and stays as it is until it's
 taken over.
 
-Turn it off in **Settings ▸ General** to open on Servers instead.
+Turn it off in **Settings ▸ General** to open on Servers instead. **View ▸ Servers on the Patch Bay** and **Skills on
+the Patch Bay** hide either part of it and show it again; hiding one only takes it off the rack, and every tool keeps
+what it's given.
 
 ## Servers a tool already has
 
