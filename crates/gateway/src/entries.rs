@@ -69,6 +69,7 @@ mod tests {
                 &Choice {
                     profile: profile.to_string(),
                     layout,
+                    ..Choice::default()
                 },
                 &servers,
                 &file,

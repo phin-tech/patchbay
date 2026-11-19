@@ -89,6 +89,9 @@ pub struct Choice {
     pub profile: String,
     #[serde(default)]
     pub layout: Layout,
+    /// Whether taking over the client's own servers has been offered, which happens once, when it's first connected.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offered_take_over: bool,
 }
 
 fn default_profile() -> String {
@@ -100,6 +103,7 @@ impl Default for Choice {
         Choice {
             profile: default_profile(),
             layout: Layout::default(),
+            offered_take_over: false,
         }
     }
 }
@@ -928,6 +932,7 @@ mod tests {
         let compact = Choice {
             profile: "small".to_string(),
             layout: Layout::Compact,
+            ..Choice::default()
         };
         choices.set(Client::Cursor, compact.clone());
         choices.save(&home).unwrap();

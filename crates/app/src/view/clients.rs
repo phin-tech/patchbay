@@ -228,12 +228,13 @@ impl MainView {
     }
 
     pub(super) fn connect(&mut self, client: Client, window: &mut Window, cx: &mut Context<Self>) {
+        let first = !client.connected(&client_home(cx));
         let connected = entries_for(client, cx).and_then(|entries| {
             client
                 .connect(&client_home(cx), &entries)
                 .map_err(|error| error.to_string())
         });
-        match connected {
+        match &connected {
             Ok(_) => Toast::new(t!(
                 "Connected %{client}: restart it to pick Patchbay up",
                 client = client.name()
@@ -251,7 +252,47 @@ impl MainView {
             ))
             .show(window, cx),
         }
+        if first && connected.is_ok() {
+            self.offer_taking_over(client, window, cx);
+        }
         self.sync(window, cx);
+    }
+
+    /// Offers, once for each client, to take over the servers it has of its own, now that it reaches Patchbay's.
+    /// Only an offer: nothing leaves the client until the person chooses Take Over and then Add.
+    fn offer_taking_over(&mut self, client: Client, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(running) = cx.try_global::<Running>() else {
+            return;
+        };
+        let home = running.gateway.home().clone();
+        let mut choices = Choices::load(&home);
+        let mut choice = choices.get(client);
+        if choice.offered_take_over {
+            return;
+        }
+        let Some(own) = client.own_servers_pasted(&client_home(cx), &own_server_names(cx)) else {
+            return;
+        };
+        choice.offered_take_over = true;
+        choices.set(client, choice);
+        if let Err(error) = choices.save(&home) {
+            tracing::warn!(%error, "couldn't keep that taking over was offered");
+        }
+        let view = cx.entity().downgrade();
+        Toast::new(t!(
+            "%{client} has servers of its own: %{servers}. Patchbay can keep them, so every client gets them",
+            client = client.name(),
+            servers = own.names.join(", ")
+        ))
+        .key(format!("offer-take-over-{}", client.slug()))
+        .stays()
+        .action(t!("Take Over…"), move |window, cx| {
+            let _ = view.update(cx, |view, cx| {
+                view.client = Some(client);
+                view.run("clients.take-over", window, cx);
+            });
+        })
+        .show(window, cx);
     }
 
     /// Connects the chosen client, or takes Patchbay out of it.

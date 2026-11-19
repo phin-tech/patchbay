@@ -41,7 +41,8 @@ From a terminal: `patchbay connect <client> --servers linear,github --layout per
 
 ## Servers a tool already has
 
-A tool that already has servers of its own shows them under **Its own**. **Take Over** (or **Take Over the Client's
+A tool that already has servers of its own shows them under **Its own**, and the first time you connect it, Patchbay
+offers to take them over. **Take Over** (or **Take Over the Client's
 Servers…** in the Servers menu) brings them into Patchbay: they open in Add Server as if pasted, so you see what
 Patchbay will add and which keys it takes out for the Keychain. Choose **Add**, and Patchbay adds them to your
 `patchbay.toml`, takes them out of the tool's config, and connects the tool if it wasn't, so it reaches them through
