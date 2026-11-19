@@ -45,7 +45,9 @@ A new skill goes to every tool Patchbay finds on your Mac, or only the ones a pa
 untick a tool on the skill's page to give it the skill or take it away.
 
 Where each skill came from is kept in `~/.agents/.skill-lock.json`, the `skills` CLI's own record, which Patchbay adds
-to and never empties.
+to and never empties. Like the CLI, `patchbay skills` finds it in `$XDG_STATE_HOME/skills` when that's set, and
+opencode's folder in `$XDG_CONFIG_HOME`. The app, opened from the Finder, never sees those, so if you set them, set
+them for apps too (`launchctl setenv`) or the app and your terminal will each keep their own record.
 
 ## Skills of your own
 

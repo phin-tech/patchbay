@@ -75,7 +75,7 @@ const USAGE: &str = "usage: patchbay <command>
   --version, --help
 
 With no arguments, opens Patchbay. Your servers are in ~/.config/patchbay/patchbay.toml
-(XDG_CONFIG_HOME or PATCHBAY_HOME moves it).";
+(PATCHBAY_HOME moves it).";
 
 /// The usage, with the skills commands in their place.
 fn usage() -> String {
