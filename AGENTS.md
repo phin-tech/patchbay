@@ -45,7 +45,8 @@ foreground.
 
 - `just shot <name> <appearance>` saves a frame to `target/shots/<name>.png`. `PATCHBAY_KEYS` drives it first:
   keys, `click:X,Y` (or `cmd-click:X,Y`) and `wait`, separated by spaces. The frame is the newest window, so
-  `PATCHBAY_KEYS="cmd-, wait"` shows Settings and `cmd-k` the palette.
+  `PATCHBAY_KEYS="cmd-, wait"` shows Settings and `cmd-k` the palette. Keys and clicks reach only the main window,
+  so `PATCHBAY_SETTINGS_SECTION=Skills` opens Settings on a section by its name.
 - The frame is at 2x: divide its pixel coordinates by two for `click:`.
 - Shots read and write no settings, so yours are safe. `PATCHBAY_SETTINGS=<file>` gives them some, and
   `PATCHBAY_WIDTH` sets the main window's width.

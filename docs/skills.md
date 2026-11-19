@@ -68,8 +68,10 @@ Then you can choose which tools have it, or remove it.
 ## Updates
 
 **Check for Skill Updates** fetches each skill's source and marks the ones that have changed, with the files that
-differ. **Update** on a skill's page applies its update; **Update All Skills** applies every one. A skill is
-instructions an agent follows and code it may run, so look at what changed before you take it.
+differ. **Update** on a skill's page applies its update; **Update All Skills** applies every one listed, or checks
+first if nothing is. Only what was listed goes in: a skill whose source changed again since the check is left, and
+said so, for you to look at on the next one. A skill is instructions an agent follows and code it may run, so look at
+what changed before you take it.
 
 ## From a terminal
 
@@ -78,7 +80,7 @@ patchbay skills add vercel-labs/agent-skills --skill web-design-guidelines -a cl
 patchbay skills add owner/repo --list    # what's in it, without installing
 patchbay skills list                     # every skill, where it's from, and which tools have it
 patchbay skills check                    # which have changed at their source
-patchbay skills update                   # apply those changes
+patchbay skills update                   # list those changes, then apply them
 patchbay skills remove web-design-guidelines
 ```
 

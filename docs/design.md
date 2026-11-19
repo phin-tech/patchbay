@@ -209,7 +209,9 @@ see what Patchbay installed. (This replaces an earlier plan for a store and lock
   fields the CLI writes and keeps every other key. A GitHub skill's hash is its folder's git tree hash, any other's
   the CLI's SHA-256 content hash, so either tool can check the other's. A lock Patchbay can't read is left alone
   rather than started again.
-- **Updating** fetches each source once, compares hashes, and lists the files that changed before applying.
+- **Updating** fetches each source once, compares hashes, and lists the files that changed before applying. Applying
+  fetches again and puts in place only what was listed, by its hash: a skill whose source has moved on since is left
+  for the next check.
 - **Skills no lock records are left alone**: a folder or link of the person's own, in the store or a client's folder,
   is shown as "Your own" and never replaced or removed. Installing over one is refused, and a client whose folder
   already has one of that name is skipped and said so.
