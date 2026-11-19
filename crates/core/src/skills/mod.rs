@@ -879,7 +879,9 @@ pub fn check(
                 .unwrap_or(&skill_path)
                 .trim_end_matches('/');
             let from = fetched.root.join(folder);
-            if !from.join("SKILL.md").is_file() {
+            // An update is held to the source's folder as discovery is: a link there now could point anywhere.
+            let inside = fs::canonicalize(&fetched.root).unwrap_or_else(|_| fetched.root.clone());
+            if !from.join("SKILL.md").is_file() || !discover::within(&from, &inside) {
                 checked.unchecked.push((
                     name,
                     format!("{skill_path} is no longer in {}", entry.source),

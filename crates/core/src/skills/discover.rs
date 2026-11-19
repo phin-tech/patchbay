@@ -38,17 +38,25 @@ const CLIENT_FOLDERS: &[&str] = &[
     ".pi/skills",
 ];
 
-/// The skills in `root`, or in `subpath` under it.
+/// The skills in `root`, or in `subpath` under it. Only what's inside `root`: a source is someone else's repository,
+/// and a link in it to a folder elsewhere on this Mac would otherwise copy that folder into the store.
 pub fn discover(root: &Path, subpath: Option<&str>) -> Vec<Found> {
     let base = match subpath {
         Some(subpath) => root.join(subpath),
         None => root.to_path_buf(),
     };
+    let Ok(inside) = fs::canonicalize(root) else {
+        return Vec::new();
+    };
+    if !within(&base, &inside) {
+        return Vec::new();
+    }
     let mut finder = Finder {
         found: Vec::new(),
         names: BTreeSet::new(),
         seen: BTreeSet::new(),
         plugins: plugin_groups(&base),
+        inside,
     };
     // A skill at the top is the whole source.
     if finder.add(&base) {
@@ -72,7 +80,7 @@ pub fn discover(root: &Path, subpath: Option<&str>) -> Vec<Found> {
         finder.walk(&folder, depth, 1);
     }
     if finder.found.is_empty() {
-        for folder in skill_folders(&base, 0) {
+        for folder in skill_folders(&base, &finder.inside, 0) {
             finder.add(&folder);
         }
     }
@@ -84,13 +92,15 @@ struct Finder {
     names: BTreeSet<String>,
     seen: BTreeSet<PathBuf>,
     plugins: Vec<(PathBuf, String)>,
+    /// The source's folder, as its real path, which nothing found may be outside.
+    inside: PathBuf,
 }
 
 impl Finder {
     /// Whether `folder` holds a `SKILL.md`, adding its skill if it's one not yet seen by name.
     fn add(&mut self, folder: &Path) -> bool {
         let file = folder.join("SKILL.md");
-        if !file.is_file() {
+        if !file.is_file() || !within(&file, &self.inside) {
             return false;
         }
         if !self.seen.insert(file.clone()) {
@@ -122,7 +132,7 @@ impl Finder {
     }
 
     fn walk(&mut self, folder: &Path, most: usize, depth: usize) {
-        for child in subfolders(folder) {
+        for child in subfolders(folder, &self.inside) {
             let name = child
                 .file_name()
                 .and_then(|name| name.to_str())
@@ -135,21 +145,26 @@ impl Finder {
     }
 }
 
-/// The folders in `folder`, by name, following links to folders.
-fn subfolders(folder: &Path) -> Vec<PathBuf> {
+/// Whether `path`, links followed, is in the folder `inside` (a real path).
+pub(super) fn within(path: &Path, inside: &Path) -> bool {
+    fs::canonicalize(path).is_ok_and(|real| real.starts_with(inside))
+}
+
+/// The folders in `folder`, by name, following links to folders that stay `inside`.
+fn subfolders(folder: &Path, inside: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = fs::read_dir(folder)
         .into_iter()
         .flatten()
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
+        .filter(|path| path.is_dir() && within(path, inside))
         .collect();
     folders.sort();
     folders
 }
 
 /// Every folder holding a `SKILL.md`, up to five deep.
-fn skill_folders(folder: &Path, depth: usize) -> Vec<PathBuf> {
+fn skill_folders(folder: &Path, inside: &Path, depth: usize) -> Vec<PathBuf> {
     if depth > 5 {
         return Vec::new();
     }
@@ -157,13 +172,13 @@ fn skill_folders(folder: &Path, depth: usize) -> Vec<PathBuf> {
     if folder.join("SKILL.md").is_file() {
         found.push(folder.to_path_buf());
     }
-    for child in subfolders(folder) {
+    for child in subfolders(folder, inside) {
         let name = child
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
         if !SKIP.contains(&name) {
-            found.extend(skill_folders(&child, depth + 1));
+            found.extend(skill_folders(&child, inside, depth + 1));
         }
     }
     found
@@ -430,6 +445,24 @@ mod tests {
         skill(&root, "skills/a", "a");
         skill(&root, "other/b", "b");
         assert_eq!(names(&root, Some("other")), ["b"]);
+    }
+
+    #[test]
+    fn links_out_of_the_source_find_nothing_outside_it() {
+        let outside = folder("outside");
+        skill(&outside, "secret", "secret");
+        let root = folder("escape");
+        skill(&root, "skills/a", "a");
+        fs::create_dir_all(root.join("skills")).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret"), root.join("skills/secret")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("out")).unwrap();
+        // Linked inside the source is fine: it's the source's own folder by another name.
+        std::os::unix::fs::symlink(root.join("skills/a"), root.join("skills/also")).unwrap();
+        assert_eq!(names(&root, None), ["a"]);
+        assert_eq!(names(&root, Some("out")), Vec::<String>::new());
+        let bare = folder("escape-bare");
+        std::os::unix::fs::symlink(&outside, bare.join("out")).unwrap();
+        assert_eq!(names(&bare, None), Vec::<String>::new());
     }
 
     #[test]
