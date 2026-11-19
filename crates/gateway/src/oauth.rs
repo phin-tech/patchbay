@@ -70,7 +70,10 @@ pub async fn manager(
     let Launch::Http { url, .. } = &server.launch else {
         return Err(AuthError::InternalError("not a remote server".to_string()));
     };
-    let mut manager = AuthorizationManager::new(url.as_str()).await?;
+    // A company's servers often resolve to private addresses over its VPN, and rmcp's default refuses those
+    // even for the server's own host. The user chose this server, and its connection reaches the same addresses
+    // anyway; loopback and link-local addresses, such as a cloud's instance metadata, stay refused.
+    let mut manager = AuthorizationManager::new_allowing_private_addresses(url.as_str()).await?;
     manager.set_credential_store(KeychainCredentials {
         secrets: Arc::clone(secrets),
         account: server.oauth_account(),
