@@ -69,11 +69,11 @@ impl MainView {
     }
 
     pub(super) fn client_list(&self, cx: &Context<Self>) -> AnyElement {
-        let query = self.filter_text(Place::Clients, cx);
+        let query = Query::plain(&self.filter_text(Place::Clients, cx));
         let shown = self
             .clients
             .iter()
-            .filter(|row| matches_filter(&query, &[row.client.name(), row.client.slug()]));
+            .filter(|row| query.matches(&[row.client.name(), row.client.slug()]));
         v_flex()
             .size_full()
             .child(self.panel_header(t!("Clients"), cx))

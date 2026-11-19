@@ -523,7 +523,7 @@ impl MainView {
                 .on_click(cx.listener(|this, _, window, cx| this.run("skills.add", window, cx))),
         );
         let folders = skill_folders(cx);
-        let query = self.filter_text(Place::Skills, cx);
+        let query = Query::plain(&self.filter_text(Place::Skills, cx));
         let from = |skill: &Skill| match &skill.keeper {
             Keeper::Locked(entry) if entry.taken_over(&folders) => t!("This Mac").into_owned(),
             Keeper::Locked(entry) => entry.source.clone(),
@@ -535,19 +535,16 @@ impl MainView {
             .iter()
             .map(|skill| (skill, from(skill)))
             .filter(|(skill, from)| {
-                matches_filter(
-                    &query,
-                    &[
-                        &skill.name,
-                        skill.description.as_deref().unwrap_or(""),
-                        from,
-                    ],
-                )
+                query.matches(&[
+                    &skill.name,
+                    skill.description.as_deref().unwrap_or(""),
+                    from,
+                ])
             })
             .collect();
         // Skills whose name matches come before those only their description or source does.
         let mut shown = shown;
-        shown.sort_by_key(|(skill, _)| !matches_filter(&query, &[&skill.name]));
+        shown.sort_by_key(|(skill, _)| !query.matches(&[&skill.name]));
         let nothing_matches = shown.is_empty() && !self.skills.list.is_empty();
         let rows = shown.into_iter().map(|(skill, from)| {
             let folder = skill.folder.clone();

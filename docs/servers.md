@@ -64,3 +64,14 @@ servers = ["linear", "github"]
 
 Choosing **Only these** for a tool in the Clients list writes a profile named after the tool for you. Without any,
 every tool sees every server.
+
+## Finding a server or a tool
+
+The filter over the list (⌘F) searches servers' names and their commands or URLs. `-word` leaves out what has it, and
+`"two words"` stay together. It also reads:
+
+- `server:github` and `team:phin-tech` (`team:me` for your own), each left out with a `-` first: `-team:me`.
+- `is:running`, `is:idle`, `is:waiting` (for a key or a sign-in) and `is:failing`, for a server's state.
+- `is:on`, `is:off`, `is:write` and `is:read`, for its tools: `server:github is:write is:off` shows GitHub's tools that
+  can change something and are turned off. A tool is `read` only when its server says it only reads. `is:off` alone
+  also shows servers turned off.

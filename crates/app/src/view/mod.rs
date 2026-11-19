@@ -16,7 +16,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use patchbay_core::clients::{Choice, Choices, Client, Entry, Layout};
 use patchbay_core::paste::Pasted;
-use patchbay_gateway::{SecretNeeded, ServerStatus, Status};
+use patchbay_gateway::{SecretNeeded, ServerStatus, Status, ToolStatus};
 use rust_i18n::t;
 use typecase::Toast;
 use typecase::help::{HelpEvent, KeyHelp};
@@ -28,12 +28,14 @@ use crate::commands::{self, COMMANDS};
 use crate::gateway::Running;
 use crate::shortcuts::{CONTEXT, RunAction};
 use crate::{about, palette, restore, theme};
+use query::Query;
 
 mod clients;
 #[cfg(test)]
 use clients::Given;
 mod editor;
 mod form;
+mod query;
 mod rack;
 mod servers;
 mod share;
@@ -579,15 +581,6 @@ impl MainView {
             filter.read(cx).focus_handle(cx).focus(window, cx);
         }
     }
-}
-
-/// Whether every word of `query` is in one of `fields`, ignoring case: `aws cdk` matches `aws-cdk`.
-fn matches_filter(query: &str, fields: &[&str]) -> bool {
-    let fields: Vec<String> = fields.iter().map(|field| field.to_lowercase()).collect();
-    query
-        .to_lowercase()
-        .split_whitespace()
-        .all(|word| fields.iter().any(|field| field.contains(word)))
 }
 
 /// A line saying what a choice means, small and quiet under it.
