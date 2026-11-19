@@ -96,6 +96,51 @@ fn collect(
     Ok(())
 }
 
+/// Whether copying `folder` keeps everything in it: nothing the CLI leaves out (`.git`, `metadata.json`), no link
+/// out of the folder or to nothing, and nothing but files, folders and links.
+pub(super) fn copies_whole(folder: &Path) -> std::io::Result<bool> {
+    let root = fs::canonicalize(folder)?;
+    whole(folder, &root, &mut Vec::new())
+}
+
+fn whole(
+    folder: &Path,
+    root: &Path,
+    ancestors: &mut Vec<std::path::PathBuf>,
+) -> std::io::Result<bool> {
+    let real = fs::canonicalize(folder)?;
+    if ancestors.contains(&real) {
+        return Ok(true);
+    }
+    ancestors.push(real);
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let kind = entry.file_type()?;
+        let path = entry.path();
+        let is_folder = if kind.is_symlink() {
+            match fs::canonicalize(&path) {
+                Ok(target) if target.starts_with(root) => target.is_dir(),
+                _ => return Ok(false),
+            }
+        } else if kind.is_dir() {
+            true
+        } else if kind.is_file() {
+            false
+        } else {
+            return Ok(false);
+        };
+        if excluded(&name, is_folder) {
+            return Ok(false);
+        }
+        if is_folder && !whole(&path, root, ancestors)? {
+            return Ok(false);
+        }
+    }
+    ancestors.pop();
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

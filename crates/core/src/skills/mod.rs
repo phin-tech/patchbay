@@ -327,6 +327,20 @@ fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+/// Whether the skill at `at` can give way to a link to `store` with nothing lost. The hash the CLI uses isn't enough:
+/// it leaves out `.git` and `metadata.json` and reads CRLF as LF, so a git checkout or a copy with other line endings
+/// would hash the same and be removed. Every byte has to match, and nothing in `at` may be one the copy leaves out.
+fn same_as_store(at: &Path, store: &Path) -> bool {
+    let files = |folder: &Path| -> std::io::Result<Vec<(String, Vec<u8>)>> {
+        let mut files = Vec::new();
+        hash::collect_files(folder, &fs::canonicalize(folder)?, &mut files)?;
+        files.sort();
+        Ok(files)
+    };
+    hash::copies_whole(at).unwrap_or(false)
+        && matches!((files(at), files(store)), (Ok(ours), Ok(kept)) if ours == kept)
+}
+
 /// Copies the skill at `from` to `to` beside it first, then puts it in place, so a failure leaves the old one.
 fn copy_into_place(from: &Path, to: &Path) -> Result<(), SkillsError> {
     let parent = to
@@ -504,7 +518,7 @@ pub fn take_over(folders: &Folders, folder: &str, now: &str) -> Result<TakenOver
             continue;
         }
         let own_folder = fs::symlink_metadata(&at).is_ok_and(|meta| meta.is_dir());
-        if own_folder && folder_hash(&at).ok().as_deref() == Some(kept_hash.as_str()) {
+        if own_folder && same_as_store(&at, &store) {
             fs::remove_dir_all(&at)?;
             let parent = at.parent().unwrap_or(&at);
             let real = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());

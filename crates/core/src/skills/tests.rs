@@ -341,3 +341,40 @@ fn folder_names_are_made_as_the_cli_makes_them() {
     assert_eq!(folder_name("--"), "unnamed-skill");
     assert_eq!(folder_name("a_b.c"), "a_b.c");
 }
+
+#[test]
+fn taking_over_a_skill_never_removes_a_copy_holding_what_the_store_leaves_out() {
+    let home = folder("take-git");
+    let folders = Folders::new(&home);
+    let skill = "---\nname: bedrock\ndescription: Bedrock\n---\nBody\n";
+    for at in [".claude/skills/bedrock", ".cursor/skills/bedrock"] {
+        fs::create_dir_all(home.join(at)).unwrap();
+        fs::write(home.join(at).join("SKILL.md"), skill).unwrap();
+    }
+    // Claude Code's copy is a git checkout, and Cursor's has a link out of the folder: neither reaches the store.
+    fs::create_dir_all(home.join(".claude/skills/bedrock/.git")).unwrap();
+    fs::write(home.join(".claude/skills/bedrock/.git/HEAD"), "ref").unwrap();
+    std::os::unix::fs::symlink(&home, home.join(".cursor/skills/bedrock/home")).unwrap();
+    let taken = super::take_over(&folders, "bedrock", "now").unwrap();
+    assert_eq!(taken.linked, []);
+    assert_eq!(taken.kept, [Client::ClaudeCode, Client::Cursor]);
+    assert!(home.join(".claude/skills/bedrock/.git/HEAD").is_file());
+    assert!(home.join(".cursor/skills/bedrock/home").is_symlink());
+    assert!(folders.store().join("bedrock/SKILL.md").is_file());
+}
+
+#[test]
+fn taking_over_a_skill_keeps_a_copy_whose_line_endings_differ() {
+    let home = folder("take-crlf");
+    let folders = Folders::new(&home);
+    for (at, body) in [
+        (".claude/skills/bedrock", "---\nname: bedrock\n---\nBody\n"),
+        (".cursor/skills/bedrock", "---\r\nname: bedrock\r\n---\r\nBody\r\n"),
+    ] {
+        fs::create_dir_all(home.join(at)).unwrap();
+        fs::write(home.join(at).join("SKILL.md"), body).unwrap();
+    }
+    let taken = super::take_over(&folders, "bedrock", "now").unwrap();
+    assert_eq!(taken.linked, [Client::ClaudeCode]);
+    assert_eq!(taken.kept, [Client::Cursor]);
+}
