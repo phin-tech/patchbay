@@ -5868,7 +5868,7 @@ checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "patchbay"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "futures",
@@ -5897,7 +5897,7 @@ dependencies = [
 
 [[package]]
 name = "patchbay-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "insta",
@@ -5910,7 +5910,7 @@ dependencies = [
 
 [[package]]
 name = "patchbay-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "insta",
  "jiff",
@@ -5926,7 +5926,7 @@ dependencies = [
 
 [[package]]
 name = "patchbay-gateway"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
