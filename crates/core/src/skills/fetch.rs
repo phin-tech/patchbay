@@ -150,9 +150,14 @@ pub fn fetch(source: &Source) -> Result<Fetched, SkillsError> {
     Ok(fetched)
 }
 
-/// git in `folder`, asking for nothing.
+/// git in `folder`, asking for nothing. With the GitHub CLI on this Mac, git asks it for a sign-in after any helper of
+/// its own, so a private repository on GitHub is reached with the account `gh auth login` signed in to.
 fn git(folder: &Path) -> Command {
     let mut git = Command::new("git");
+    if let Some(gh) = gh() {
+        // `-c` adds to the helpers git's config names rather than replacing them, so a saved sign-in still comes first.
+        git.arg("-c").arg(credential_helper(gh));
+    }
     git.current_dir(folder)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ASKPASS", "")
@@ -162,6 +167,26 @@ fn git(folder: &Path) -> Command {
         .env("GIT_ALLOW_PROTOCOL", "https:http:ssh:git:file")
         .stdin(Stdio::null());
     git
+}
+
+/// The GitHub CLI, found once: on the `PATH`, or where Homebrew puts it, since an app opened from the Finder has only
+/// the system's `PATH`.
+fn gh() -> Option<&'static Path> {
+    static GH: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    GH.get_or_init(|| {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .chain(["/opt/homebrew/bin".into(), "/usr/local/bin".into()])
+            .map(|folder| folder.join("gh"))
+            .find(|gh| gh.is_file())
+    })
+    .as_deref()
+}
+
+/// The setting that has git ask `gh` for a sign-in, as `gh auth setup-git` writes it.
+fn credential_helper(gh: &Path) -> String {
+    let quoted = gh.display().to_string().replace('\'', "'\\''");
+    format!("credential.helper=!'{quoted}' auth git-credential")
 }
 
 /// What a git command writes, once it's run to its end.
@@ -253,7 +278,19 @@ fn run_with(command: &mut Command, url: &str) -> Result<(), SkillsError> {
 
 #[cfg(test)]
 mod tests {
-    use super::telling_line;
+    use super::{credential_helper, telling_line};
+
+    #[test]
+    fn git_asks_the_github_cli_for_a_sign_in_wherever_it_is() {
+        assert_eq!(
+            credential_helper(std::path::Path::new("/opt/homebrew/bin/gh")),
+            "credential.helper=!'/opt/homebrew/bin/gh' auth git-credential"
+        );
+        assert_eq!(
+            credential_helper(std::path::Path::new("/Users/o'neill/bin/gh")),
+            "credential.helper=!'/Users/o'\\''neill/bin/gh' auth git-credential"
+        );
+    }
 
     #[test]
     fn a_refused_ssh_clone_says_it_was_refused_not_the_advice_after() {

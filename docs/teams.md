@@ -54,9 +54,10 @@ The team's secrets are yours. Patchbay asks for each one when its server first s
 name in your Keychain (`acme/github-token`). Your keys never go to the team's repository, and the team never sees
 them.
 
-A private repository has to be one git can reach without asking for anything. Patchbay's git never shows a
-prompt. Use an SSH URL with a key your ssh-agent holds, or clone the repository once in a terminal so git's
-credential helper saves your sign-in.
+A private repository on GitHub works once you've signed in with the GitHub CLI (`gh auth login`): Patchbay asks
+`gh` for your sign-in whenever git needs one. Patchbay's git never shows a prompt. Anywhere else, use an SSH URL with a
+key your ssh-agent holds, or clone the repository once in a terminal so git's credential helper saves your sign-in.
+The same goes for skills from a private repository.
 
 ## Changes
 

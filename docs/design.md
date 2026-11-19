@@ -213,8 +213,10 @@ see what Patchbay installed. (This replaces an earlier plan for a store and lock
 
 - **Sources** are written as the CLI takes them: `owner/repo`, `owner/repo@skill`, `owner/repo/path`, GitHub and
   GitLab URLs (with `/tree/<ref>/<path>`), `github:`/`gitlab:`, a `#ref@skill` fragment, any other git URL
-  (git.phin.tech, SSH, `file://`), or a folder. A whole `npx skills add … --skill … -a …` line can be pasted into the
-  window or given to `patchbay skills add`. Repositories are searched by the CLI's rules: `SKILL.md` at the top,
+  (git.phin.tech, SSH, `file://`), or a folder. With the GitHub CLI installed, git asks `gh auth git-credential`
+  for a sign-in after its own helpers, so private GitHub repositories work for skills and teams alike.
+  A whole `npx skills add … --skill … -a …` line can be pasted into the window or given to `patchbay skills add`.
+  Repositories are searched by the CLI's rules: `SKILL.md` at the top,
   `skills/` and its `.curated`/`.experimental`/`.system`, clients' own skills folders, `skills.sh.json`'s paths and
   Claude plugin manifests, then any `SKILL.md` five deep. git runs with no prompts and a timeout.
 - **The store** is `~/.agents/skills/<name>/`, named as the CLI names it from the frontmatter. Each skill is linked

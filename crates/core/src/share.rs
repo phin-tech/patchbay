@@ -41,7 +41,7 @@ pub enum TeamError {
     #[error("{0} was updated while you were looking; check it again")]
     Stale(String),
     #[error(
-        "{0} needs you signed in. Patchbay's git never asks, so clone it once in a terminal to save your sign-in, or use an SSH URL with a key ssh-agent holds"
+        "{0} needs you signed in. Patchbay's git never asks: for GitHub, sign in with `gh auth login`; elsewhere, clone it once in a terminal to save your sign-in, or use an SSH URL with a key ssh-agent holds"
     )]
     Denied(String),
     #[error("“{0}” isn't the whole commit that was shown; accept with the 40 characters it gave")]
