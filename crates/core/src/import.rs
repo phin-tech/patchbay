@@ -70,7 +70,7 @@ pub fn gather(home: &Path, known: &[Known]) -> Gathered {
         for (name, server) in client.own_servers(home) {
             copies.push((
                 name,
-                server,
+                usual_shape(client, server),
                 Origin {
                     client,
                     kept: Kept::User,
@@ -180,6 +180,49 @@ pub fn pasted(chosen: &[(&Found, usize)]) -> String {
         .collect();
     serde_json::to_string_pretty(&serde_json::json!({ "mcpServers": block }))
         .expect("JSON values always print")
+}
+
+/// A server as most clients and READMEs write it (`command`, `args`, `env`, or `url`, `headers`), from opencode's
+/// own shape (`type: local` with `command` as a list and `environment`, or `type: remote`), so the same server in
+/// opencode and elsewhere is seen as one, and Add Server reads it.
+fn usual_shape(client: Client, server: Value) -> Value {
+    if client != Client::OpenCode {
+        return server;
+    }
+    let Some(object) = server.as_object() else {
+        return server;
+    };
+    let mut usual = Map::new();
+    if let Some(url) = object.get("url") {
+        usual.insert("url".into(), url.clone());
+        if let Some(headers) = object.get("headers") {
+            usual.insert("headers".into(), headers.clone());
+        }
+        return Value::Object(usual);
+    }
+    let command: Vec<Value> = match object.get("command") {
+        Some(Value::Array(parts)) => parts.clone(),
+        Some(command) => vec![command.clone()],
+        None => Vec::new(),
+    };
+    let mut parts = command.into_iter();
+    if let Some(program) = parts.next() {
+        usual.insert("command".into(), program);
+    }
+    let args: Vec<Value> = parts
+        .chain(
+            object
+                .get("args")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+        )
+        .collect();
+    usual.insert("args".into(), Value::Array(args));
+    if let Some(env) = object.get("environment").or_else(|| object.get("env")) {
+        usual.insert("env".into(), env.clone());
+    }
+    Value::Object(usual)
 }
 
 /// The servers under `key` in a JSON object, by name.
@@ -499,6 +542,31 @@ mod tests {
             .map(|version| version.origins[0].client)
             .collect();
         assert_eq!(clients, [Client::ClaudeCode, Client::Cursor]);
+    }
+
+    #[test]
+    fn a_server_in_opencodes_own_shape_is_the_same_as_one_written_the_usual_way() {
+        let home = home("opencode");
+        write(
+            &home.join(".config/opencode/opencode.json"),
+            r#"{"mcp": {"aws": {"type": "local", "command": ["uvx", "mcp-proxy-for-aws@latest"], "environment": {"AWS_PROFILE": "x"}, "enabled": true}}}"#,
+        );
+        write(
+            &home.join(".cursor/mcp.json"),
+            r#"{"mcpServers": {"aws": {"command": "uvx", "args": ["mcp-proxy-for-aws@latest"], "env": {"AWS_PROFILE": "x"}}}}"#,
+        );
+        let gathered = gather(&home, &[]);
+        let aws = gathered
+            .found
+            .iter()
+            .find(|found| found.name == "aws")
+            .unwrap();
+        assert_eq!(aws.versions.len(), 1, "{:?}", aws.versions);
+        assert_eq!(aws.versions[0].origins.len(), 2);
+        assert_eq!(
+            Summary::of(&aws.versions[0].server).target,
+            "uvx mcp-proxy-for-aws@latest"
+        );
     }
 
     #[test]

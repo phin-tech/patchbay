@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::radio::Radio;
 use patchbay_core::import::{Found, Gathered, Kept, Known, Origin, Summary, gather, pasted};
 use patchbay_core::skills::Skill;
 
@@ -144,6 +145,7 @@ impl MainView {
         };
         let header = self.panel_header(t!("Import from Your Clients"), cx).child(
             h_flex()
+                .flex_none()
                 .gap_1()
                 .child(
                     Button::new("cancel-import")
@@ -162,16 +164,17 @@ impl MainView {
                 ),
         );
         let home = client_home(cx);
-        let rows = importing
+        let (new, had): (Vec<&Found>, Vec<&Found>) = importing
             .gathered
             .found
             .iter()
-            .map(|found| self.import_row(found, importing, &home, cx));
+            .partition(|found| found.patchbay_has.is_none());
         let mut leaving: Vec<&str> = importing
             .out
             .iter()
             .map(|(origin, _)| origin.client.name())
             .collect();
+        leaving.sort_unstable();
         leaving.dedup();
         let own_skills: Vec<&Skill> = self
             .skills
@@ -179,34 +182,12 @@ impl MainView {
             .iter()
             .filter(|skill| !skill.managed())
             .collect();
-        let skills = v_flex().gap_2().children(own_skills.iter().map(|skill| {
-            let folder = skill.folder.clone();
-            let clients: Vec<&str> = skill
-                .clients
-                .iter()
-                .map(|(client, _)| client.name())
-                .collect();
-            v_flex()
-                .gap_0p5()
-                .child(
-                    Checkbox::new(SharedString::from(format!("import-skill-{folder}")))
-                        .label(skill.name.clone())
-                        .checked(importing.skills.contains(&folder))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.toggle_import_skill(&folder, cx);
-                        })),
-                )
-                .child(
-                    div()
-                        .pl_6()
-                        .child(hint(t!("In %{clients}", clients = clients.join(", ")), cx)),
-                )
-        }));
         let body = v_flex()
-            .gap_4()
+            .gap_5()
             .p_4()
+            .min_w_0()
             .child(hint(
-                t!("Tick what to bring into Patchbay. Nothing leaves a client unless you tick that too, and a client a server leaves is connected to Patchbay, so it still has it."),
+                t!("Tick what to bring into Patchbay. Nothing leaves a client unless you choose where to take it out of, and a client a server leaves is connected to Patchbay, so it still has it."),
                 cx,
             ))
             .children(importing.gathered.unreadable.iter().map(|problem| {
@@ -217,10 +198,10 @@ impl MainView {
             }))
             .child(
                 section(t!("Servers"), cx)
-                    .when(importing.gathered.found.is_empty(), |this| {
-                        this.child(hint(t!("Your clients have no servers of their own."), cx))
+                    .when(new.is_empty(), |this| {
+                        this.child(hint(t!("Your clients have no servers Patchbay doesn't have already."), cx))
                     })
-                    .children(rows),
+                    .children(new.iter().map(|found| self.import_card(found, importing, &home, cx))),
             )
             .when(!own_skills.is_empty(), |this| {
                 this.child(
@@ -229,8 +210,18 @@ impl MainView {
                             t!("Taken over, a skill is kept once and each client's copy becomes a link to it, where it's the same."),
                             cx,
                         ))
-                        .child(skills),
+                        .children(own_skills.iter().map(|skill| self.skill_card(skill, importing, cx))),
                 )
+            })
+            .when(!had.is_empty(), |this| {
+                let names: Vec<String> = had
+                    .iter()
+                    .map(|found| match &found.patchbay_has {
+                        Some(has) if *has != found.name => format!("{} ({has})", found.name),
+                        _ => found.name.clone(),
+                    })
+                    .collect();
+                this.child(section(t!("Patchbay has these already"), cx).child(hint(names.join(", "), cx)))
             })
             .when(!leaving.is_empty(), |this| {
                 this.child(hint(
@@ -243,13 +234,22 @@ impl MainView {
             });
         v_flex()
             .size_full()
+            .min_w_0()
             .child(header)
-            .child(div().id("import").flex_1().overflow_y_scroll().child(body))
+            .child(
+                div()
+                    .id("import")
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_y_scroll()
+                    .child(body),
+            )
             .into_any_element()
     }
 
-    /// One server: its tick, each version to choose between if they differ, and each place it can be taken out of.
-    fn import_row(
+    /// One server, as a card: its tick and name, the clients that have it, where it's reached, and once it's ticked,
+    /// which setup to bring in and where to take it out of.
+    fn import_card(
         &self,
         found: &Found,
         importing: &Importing,
@@ -259,110 +259,279 @@ impl MainView {
         let theme = cx.theme();
         let name = found.name.clone();
         let chosen = importing.chosen.get(&found.name).copied();
-        let mut row = v_flex().gap_1();
-        let tick = Checkbox::new(SharedString::from(format!("import-{name}")))
-            .label(name.clone())
-            .checked(chosen.is_some())
-            .disabled(found.patchbay_has.is_some())
+        let mut clients: Vec<&str> = found
+            .versions
+            .iter()
+            .flat_map(|version| &version.origins)
+            .map(|origin| origin.client.name())
+            .collect();
+        clients.sort_unstable();
+        clients.dedup();
+        let several = found.versions.len() > 1;
+        // The whole row ticks it, not only the box.
+        let head = h_flex()
+            .id(SharedString::from(format!("import-row-{name}")))
+            .gap_2()
+            .items_center()
+            .min_w_0()
+            .cursor_pointer()
             .on_click(cx.listener({
                 let name = name.clone();
                 move |this, _, _, cx| this.toggle_import(&name, cx)
-            }));
-        row = row.child(tick);
-        if let Some(has) = &found.patchbay_has {
-            return row.child(div().pl_6().child(hint(
+            }))
+            .child(
+                Checkbox::new(SharedString::from(format!("import-{name}")))
+                    .checked(chosen.is_some()),
+            )
+            .child(div().flex_none().font_semibold().child(name.clone()))
+            .when(several, |this| {
+                this.child(
+                    shell::badge(Tag::secondary())
+                        .xsmall()
+                        .child(t!("%{count} setups", count = found.versions.len()).into_owned()),
+                )
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_right()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(clients.join(", ")),
+            );
+        let mut card = v_flex()
+            .gap_2()
+            .p_3()
+            .min_w_0()
+            .rounded_lg()
+            .border_1()
+            .border_color(if chosen.is_some() {
+                theme.primary
+            } else {
+                theme.border
+            })
+            .child(head);
+        let shown = chosen.unwrap_or(0);
+        match chosen {
+            // Ticked with several setups: choose one, each with the clients that have it.
+            Some(at) if several => {
+                card = card.child(label_line(t!("Bring in this setup"), cx));
+                for (version_at, version) in found.versions.iter().enumerate() {
+                    let summary = Summary::of(&version.server);
+                    let mut by: Vec<&str> = version
+                        .origins
+                        .iter()
+                        .map(|origin| origin.client.name())
+                        .collect();
+                    by.dedup();
+                    let name = name.clone();
+                    card = card.child(
+                        h_flex()
+                            .id(SharedString::from(format!(
+                                "import-{name}-setup-{version_at}"
+                            )))
+                            .gap_2()
+                            .items_center()
+                            .min_w_0()
+                            .pl_6()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.choose_version(&name, version_at, cx);
+                            }))
+                            .child(
+                                Radio::new(SharedString::from(format!(
+                                    "import-{}-radio-{version_at}",
+                                    found.name
+                                )))
+                                .checked(at == version_at),
+                            )
+                            .child(shell::code_chip(tilde(&summary.target, home), cx))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(by.join(", ")),
+                            ),
+                    );
+                }
+            }
+            _ => {
+                let summary = Summary::of(&found.versions[shown].server);
+                card = card.child(
+                    h_flex()
+                        .pl_6()
+                        .gap_2()
+                        .min_w_0()
+                        .child(shell::code_chip(tilde(&summary.target, home), cx)),
+                );
+            }
+        }
+        let summary = Summary::of(&found.versions[shown].server);
+        if !summary.keys.is_empty() {
+            card = card.child(div().pl_6().child(hint(
                 t!(
-                    "Patchbay already has it, as %{server}",
-                    server = has.clone()
+                    "Keys: %{keys}, which go to the Keychain",
+                    keys = summary.keys.join(", ")
                 ),
                 cx,
             )));
         }
-        let several = found.versions.len() > 1;
-        for (at, version) in found.versions.iter().enumerate() {
-            let summary = Summary::of(&version.server);
-            let says = if summary.keys.is_empty() {
-                summary.target.clone()
-            } else {
-                t!(
-                    "%{target} · keys %{keys}",
-                    target = summary.target.clone(),
-                    keys = summary.keys.join(", ")
-                )
-                .into_owned()
-            };
-            let mut block = v_flex().pl_6().gap_1();
-            block = if several {
-                let name = name.clone();
-                block.child(
-                    Checkbox::new(SharedString::from(format!("import-{name}-version-{at}")))
-                        .label(t!("This one: %{says}", says = says).into_owned())
-                        .checked(chosen == Some(at))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.choose_version(&name, at, cx);
-                        })),
-                )
-            } else {
-                block.child(hint(says, cx))
-            };
-            for origin in &version.origins {
-                let key = (origin.clone(), found.name.clone());
-                let out = importing.out.contains(&key);
-                // Taking out a copy set up differently from the one brought in loses how it was set up.
-                let differs = chosen.is_some_and(|chosen| chosen != at);
+        let Some(at) = chosen else {
+            return card;
+        };
+        // Where it can be taken out of, as chips to switch on: every place it's kept, whichever setup.
+        let mut differs = Vec::new();
+        let chips = found
+            .versions
+            .iter()
+            .enumerate()
+            .flat_map(|(version_at, version)| {
+                version
+                    .origins
+                    .iter()
+                    .map(move |origin| (version_at, origin))
+            });
+        let chips: Vec<Button> = chips
+            .map(|(version_at, origin)| {
+                let out = importing
+                    .out
+                    .contains(&(origin.clone(), found.name.clone()));
+                if out && version_at != at {
+                    differs.push(origin.client.name());
+                }
+                let (label, says) = place_label(origin, home);
                 let origin_for_click = origin.clone();
                 let name = name.clone();
-                block = block.child(
-                    v_flex()
-                        .pl_6()
-                        .child(
-                            Checkbox::new(SharedString::from(format!(
-                                "import-out-{name}-{}",
-                                origin_id(origin)
-                            )))
-                            .label(take_out_label(origin, home))
-                            .checked(out)
-                            .disabled(chosen.is_none())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toggle_out(&origin_for_click, &name, cx);
-                            })),
-                        )
-                        .when(out && differs, |this| {
-                            this.child(
-                                div().pl_6().text_sm().text_color(theme.warning).child(
-                                    t!("It's set up differently there, and that setup goes with it.")
-                                        .into_owned(),
-                                ),
-                            )
-                        }),
-                );
-            }
-            row = row.child(block);
+                Button::new(SharedString::from(format!(
+                    "import-out-{name}-{}",
+                    origin_id(origin)
+                )))
+                .xsmall()
+                // On, a chip is filled, so what's to come out reads at a glance.
+                .when(out, |chip| chip.primary())
+                .when(!out, |chip| chip.outline())
+                .toggled(out)
+                .label(label)
+                .tooltip(says)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_out(&origin_for_click, &name, cx);
+                }))
+            })
+            .collect();
+        card = card
+            .child(label_line(t!("Take it out of"), cx))
+            .child(h_flex().pl_6().gap_1().flex_wrap().children(chips));
+        if !differs.is_empty() {
+            card = card.child(
+                div().pl_6().text_sm().text_color(theme.warning).child(
+                    t!(
+                        "It's set up differently in %{clients}, and that setup goes with it.",
+                        clients = differs.join(", ")
+                    )
+                    .into_owned(),
+                ),
+            );
         }
-        row
+        card
+    }
+
+    /// One of the person's own skills, as a card: its tick and name, and the clients that have it.
+    fn skill_card(
+        &self,
+        skill: &Skill,
+        importing: &Importing,
+        cx: &Context<Self>,
+    ) -> Stateful<Div> {
+        let theme = cx.theme();
+        let folder = skill.folder.clone();
+        let ticked = importing.skills.contains(&folder);
+        let clients: Vec<&str> = skill
+            .clients
+            .iter()
+            .map(|(client, _)| client.name())
+            .collect();
+        h_flex()
+            .id(SharedString::from(format!("import-skill-row-{folder}")))
+            .gap_2()
+            .items_center()
+            .p_3()
+            .min_w_0()
+            .rounded_lg()
+            .border_1()
+            .border_color(if ticked { theme.primary } else { theme.border })
+            .cursor_pointer()
+            .child(
+                Checkbox::new(SharedString::from(format!("import-skill-{folder}"))).checked(ticked),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.toggle_import_skill(&folder, cx);
+            }))
+            .child(div().flex_none().font_semibold().child(skill.name.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_right()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(clients.join(", ")),
+            )
     }
 }
 
-/// "Take it out of Claude Code", and for a project, which one and whether it's shared with the project's repository.
-fn take_out_label(origin: &Origin, home: &Path) -> String {
+/// A small heading inside a card.
+fn label_line(text: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .pl_6()
+        .text_xs()
+        .font_semibold()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
+}
+
+/// `text` with the home folder written as `~`.
+fn tilde(text: &str, home: &Path) -> String {
+    let home = home.display().to_string();
+    text.replace(&format!("{home}/"), "~/")
+}
+
+/// A place a copy can be taken out of, short for its chip, and in full for its tooltip: whether it's the client's own,
+/// one project's only, or a file the project's repository shares.
+fn place_label(origin: &Origin, home: &Path) -> (String, String) {
     let client = origin.client.name();
-    let shown = |folder: &Path| match folder.strip_prefix(home) {
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => folder.display().to_string(),
+    let project = |folder: &Path| {
+        folder.file_name().map_or_else(
+            || folder.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        )
     };
+    let shown = |folder: &Path| tilde(&folder.display().to_string(), home);
     match &origin.kept {
-        Kept::User => t!("Take it out of %{client}", client = client).into_owned(),
-        Kept::InProject(folder) => t!(
-            "Take it out of %{client} in %{project}, this project only",
-            client = client,
-            project = shown(folder)
-        )
-        .into_owned(),
-        Kept::ProjectFile(folder) => t!(
-            "Take it out of %{file}, which the project's repository shares",
-            file = shown(&folder.join(".mcp.json"))
-        )
-        .into_owned(),
+        Kept::User => (
+            client.to_string(),
+            t!("%{client}'s own servers", client = client).into_owned(),
+        ),
+        Kept::InProject(folder) => (
+            format!("{client} · {}", project(folder)),
+            t!(
+                "%{client} in %{project}, this project only",
+                client = client,
+                project = shown(folder)
+            )
+            .into_owned(),
+        ),
+        Kept::ProjectFile(folder) => (
+            format!("{}/.mcp.json", project(folder)),
+            t!(
+                "%{file}, which the project's repository shares",
+                file = shown(&folder.join(".mcp.json"))
+            )
+            .into_owned(),
+        ),
     }
 }
 

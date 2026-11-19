@@ -499,7 +499,14 @@ impl MainView {
             .h(rems(36. / 13.))
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(div().font_semibold().child(title.into()))
+            // The title gives way to what's beside it, so a button is never pushed out of a narrow panel.
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .font_semibold()
+                    .child(title.into()),
+            )
     }
 
     /// A panel's heading with something beside its title, such as the state of what it shows.
