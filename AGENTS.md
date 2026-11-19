@@ -75,6 +75,8 @@ foreground.
   with `#![expect(unsafe_code, reason = …)]`, as `update.rs` does, and each block with a `// SAFETY:` comment.
 - Colours come from Typecase's themes, chosen in Settings ▸ Appearance. Views take them from `cx.theme()`, and text
   sizes from the theme or rems, so the text size in Settings reaches them; a fixed width that holds text should grow with it too.
+  The patch bay is the one exception: its hardware keeps its own two finishes (`Look` in `view/rack/mod.rs`), light and
+  dark, whatever the theme, and only its lights take theme colours.
 - A window of a new kind hands the Commands it doesn't run to `commands::run`, as Settings does, or the menus do
   nothing while it has focus.
 - Anything reached with the mouse should be a Command in a menu, which puts it in the palette as well.

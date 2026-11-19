@@ -748,8 +748,8 @@ impl MainView {
                 jack(
                     SharedString::from(format!("rack-jack-{slug}-skills")),
                     local_spot(module, spot),
-                    // As the skills' own modules are marked.
-                    "S".to_string(),
+                    // As the skills' own modules are marked: S for a skill in the store.
+                    t!("S").into_owned(),
                     rem,
                     look,
                 )
@@ -899,10 +899,11 @@ impl MainView {
         let tape = {
             let folder = folder.clone();
             tape(
+                // S for a skill Patchbay looks after, which can be patched; L for one of the person's own, hard-wired.
                 if ours {
-                    "S".to_string()
+                    t!("S").into_owned()
                 } else {
-                    "L".to_string()
+                    t!("L").into_owned()
                 },
                 skill.name.clone(),
                 look,

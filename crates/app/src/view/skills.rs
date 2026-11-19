@@ -321,7 +321,14 @@ impl MainView {
                     kept += done.kept.len();
                     taken.push(done);
                 }
-                Err(error) => failed.push(format!("{folder}: {error}")),
+                Err(error) => failed.push(
+                    t!(
+                        "%{skill}: %{error}",
+                        skill = folder,
+                        error = error.to_string()
+                    )
+                    .into_owned(),
+                ),
             }
         }
         let said = match taken.as_slice() {
@@ -362,7 +369,12 @@ impl MainView {
             skills::unlink_client(&folders, &folder, client)
         };
         if let Err(error) = done {
-            Toast::error(error.to_string()).show(window, cx);
+            Toast::error(t!(
+                "Couldn't change %{client}'s skills: %{error}",
+                client = client.name(),
+                error = error.to_string()
+            ))
+            .show(window, cx);
         }
         self.sync_skills(cx);
     }
