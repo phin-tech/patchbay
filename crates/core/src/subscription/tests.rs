@@ -7,6 +7,7 @@ use super::{
 };
 use crate::Home;
 use crate::manifest::{Scope, resolve};
+use crate::secrets::MemorySecrets;
 use crate::share::{self, TeamError};
 use crate::skills::{Folders, Lock, Stamp};
 
@@ -143,7 +144,10 @@ fn a_team_that_hasnt_moved_has_nothing_to_look_at() {
     let (_, url) = team_repo(&root, TEAM);
     let home = Home::new(root.join("home"));
     accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
-    assert_eq!(check(&home, "phin-tech").unwrap(), None);
+    assert_eq!(
+        check(&home, &MemorySecrets::default(), "phin-tech").unwrap(),
+        None
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -165,7 +169,9 @@ fn a_teams_changes_wait_to_be_accepted_and_take_your_switches_for_what_it_droppe
     let second = commit(&repo, &changed, "Linear in, Sentry out");
     let before = std::fs::read_to_string(share::manifest_path(&home, "phin-tech")).unwrap();
 
-    let pending = check(&home, "phin-tech").unwrap().unwrap();
+    let pending = check(&home, &MemorySecrets::default(), "phin-tech")
+        .unwrap()
+        .unwrap();
     assert_eq!(pending.commit, second);
     assert_eq!(
         std::fs::read_to_string(share::manifest_path(&home, "phin-tech")).unwrap(),
@@ -190,7 +196,10 @@ fn a_teams_changes_wait_to_be_accepted_and_take_your_switches_for_what_it_droppe
         "",
         "a switch for a server the team dropped would be a server with nothing to run"
     );
-    assert_eq!(check(&home, "phin-tech").unwrap(), None);
+    assert_eq!(
+        check(&home, &MemorySecrets::default(), "phin-tech").unwrap(),
+        None
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -229,7 +238,10 @@ fn a_new_commit_that_only_changes_comments_is_taken_in_without_asking() {
     accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
     let text = format!("# Ask in #platform before changing these.\n{TEAM}");
     let moved = commit(&repo, &text, "A comment");
-    assert_eq!(check(&home, "phin-tech").unwrap(), None);
+    assert_eq!(
+        check(&home, &MemorySecrets::default(), "phin-tech").unwrap(),
+        None
+    );
     assert_eq!(
         Subscriptions::read(&home).unwrap().teams["phin-tech"].commit,
         moved
@@ -248,8 +260,12 @@ fn a_look_at_a_team_that_was_updated_since_is_refused() {
     let home = Home::new(root.join("home"));
     accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
     commit(&repo, &TEAM.replace("2025.4.8", "2025.5.0"), "One");
-    let first_look = check(&home, "phin-tech").unwrap().unwrap();
-    let second_look = check(&home, "phin-tech").unwrap().unwrap();
+    let first_look = check(&home, &MemorySecrets::default(), "phin-tech")
+        .unwrap()
+        .unwrap();
+    let second_look = check(&home, &MemorySecrets::default(), "phin-tech")
+        .unwrap()
+        .unwrap();
     accept(&home, &first_look).unwrap();
     assert!(matches!(
         accept(&home, &second_look),
@@ -266,12 +282,14 @@ fn accepting_on_the_command_line_takes_the_commit_looked_at_not_a_newer_one() {
     accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
     let looked_at = commit(&repo, &TEAM.replace("2025.4.8", "2025.5.0"), "One");
     commit(&repo, &TEAM.replace("2025.4.8", "2026.1.0"), "Two");
-    let pending = at_commit(&home, "phin-tech", &looked_at).unwrap();
+    let pending = at_commit(&home, &MemorySecrets::default(), "phin-tech", &looked_at).unwrap();
     accept(&home, &pending).unwrap();
     let kept = std::fs::read_to_string(share::manifest_path(&home, "phin-tech")).unwrap();
     assert!(kept.contains("2025.5.0"), "{kept}");
     assert!(
-        check(&home, "phin-tech").unwrap().is_some(),
+        check(&home, &MemorySecrets::default(), "phin-tech")
+            .unwrap()
+            .is_some(),
         "the newer commit is still there to look at"
     );
     let _ = std::fs::remove_dir_all(&root);
@@ -296,7 +314,11 @@ fn subscribing_at_a_commit_looked_at_still_follows_the_branch() {
     assert_eq!(pending.commit, looked_at);
     assert_eq!(pending.branch, None);
     accept(&home, &pending).unwrap();
-    assert!(check(&home, "phin-tech").unwrap().is_some());
+    assert!(
+        check(&home, &MemorySecrets::default(), "phin-tech")
+            .unwrap()
+            .is_some()
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -322,7 +344,7 @@ fn only_the_whole_commit_shown_is_accepted_never_a_branch_in_its_place() {
     accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
     commit(&repo, &TEAM.replace("2025.4.8", "2025.5.0"), "One");
     assert!(matches!(
-        at_commit(&home, "phin-tech", "main"),
+        at_commit(&home, &MemorySecrets::default(), "phin-tech", "main"),
         Err(TeamError::NotTheCommit(_))
     ));
     let _ = std::fs::remove_dir_all(&root);
@@ -339,7 +361,9 @@ fn a_team_that_renames_itself_keeps_its_folder_so_your_keys_stay_found() {
         &TEAM.replace("Phin Tech", "Phin Technologies"),
         "Rename",
     );
-    let pending = check(&home, "phin-tech").unwrap().unwrap();
+    let pending = check(&home, &MemorySecrets::default(), "phin-tech")
+        .unwrap()
+        .unwrap();
     assert_eq!(pending.folder, "phin-tech");
     assert_eq!(pending.changes[0].part, Part::Team);
     accept(&home, &pending).unwrap();
@@ -379,7 +403,10 @@ fn a_team_can_be_kept_under_a_name_of_your_own_on_another_branch() {
             .as_deref(),
         Some("staging")
     );
-    assert_eq!(check(&home, "platform-staging").unwrap(), None);
+    assert_eq!(
+        check(&home, &MemorySecrets::default(), "platform-staging").unwrap(),
+        None
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 

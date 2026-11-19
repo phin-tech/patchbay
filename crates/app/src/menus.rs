@@ -108,6 +108,7 @@ pub fn menus() -> Vec<Menu> {
                 run(t!("Remove Server"), "servers.remove"),
                 MenuItem::separator(),
                 run(t!("Subscribe to a Team…"), "teams.subscribe"),
+                run(t!("Subscribe to LiteLLM…"), "teams.subscribe-litellm"),
                 run(t!("Review Team Changes…"), "teams.review"),
                 run(t!("Check Teams for Changes"), "teams.check"),
                 run(t!("Remove Team"), "servers.remove-team"),

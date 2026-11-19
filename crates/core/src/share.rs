@@ -34,7 +34,7 @@ pub enum TeamError {
     NoManifest(String),
     #[error("That manifest has no servers or skills in it")]
     NothingShared,
-    #[error("You're subscribed to that repository already, as “{0}”")]
+    #[error("You're subscribed to that already, as “{0}”")]
     Subscribed(String),
     #[error("There's a team kept as “{0}” already; give this one another name")]
     Taken(String),
@@ -46,6 +46,21 @@ pub enum TeamError {
     Denied(String),
     #[error("“{0}” isn't the whole commit that was shown; accept with the 40 characters it gave")]
     NotTheCommit(String),
+    #[error("“{0}” isn't the version of LiteLLM's servers that was shown; check it again")]
+    NotTheVersion(String),
+    #[error("Give LiteLLM's URL, starting with https:// or http://, not “{0}”")]
+    NotLiteLlm(String),
+    #[error("Give your LiteLLM key, the sk-… it gave you")]
+    NoKey,
+    #[error(
+        "{0} turned your key away: check it in LiteLLM, or replace it in Settings ▸ Subscriptions"
+    )]
+    KeyRefused(String),
+    #[error("LiteLLM at {0} lists no MCP servers your key can use")]
+    NoneListed(String),
+    /// What went wrong asking LiteLLM, which says what was being asked.
+    #[error("{0}")]
+    LiteLlm(String),
     /// What git said, which already says what it couldn't fetch.
     #[error("{0}")]
     Fetch(String),

@@ -62,6 +62,8 @@ pub struct Server {
     pub enabled: bool,
     pub launch: Launch,
     pub namespace: String,
+    /// What the server puts before its own tools' names, which the gateway takes off them.
+    pub tool_prefix: Option<String>,
     pub tools: ToolFilter,
     /// The lowest layer that names it, which is where it came from.
     pub from: Scope,
@@ -190,6 +192,7 @@ struct Draft {
     auth: Option<AuthKind>,
     oauth: Option<OAuthSpec>,
     namespace: Option<String>,
+    tool_prefix: Option<String>,
     tools: Option<ToolsSpec>,
 }
 
@@ -235,6 +238,9 @@ impl Draft {
         }
         if spec.namespace.is_some() {
             self.namespace.clone_from(&spec.namespace);
+        }
+        if spec.tool_prefix.is_some() {
+            self.tool_prefix.clone_from(&spec.tool_prefix);
         }
         if spec.tools.is_some() {
             self.tools.clone_from(&spec.tools);
@@ -308,6 +314,7 @@ impl Draft {
             enabled: self.enabled.unwrap_or(true),
             launch,
             namespace,
+            tool_prefix: self.tool_prefix.filter(|prefix| !prefix.is_empty()),
             tools: self.tools.as_ref().map(ToolFilter::new).unwrap_or_default(),
             from: self.from.unwrap_or(Scope::Me),
         })

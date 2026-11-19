@@ -305,7 +305,7 @@ impl Command {
                 let folders =
                     patchbay_core::skills::Folders::from_env(user_home()).chosen_in(&settings);
                 // git can take a while, and blocks; the runtime has nothing else to do meanwhile.
-                if command.run(&home, &folders, out)? {
+                if command.run(&home, &folders, secrets.as_ref(), out)? {
                     reload(&home, secrets.as_ref(), out).await;
                 }
             }

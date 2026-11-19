@@ -2,7 +2,7 @@
 //! server with its secrets from the Keychain, signs in to OAuth servers, and exposes their tools to AI clients
 //! under each server's namespace (`github__create_issue`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, RwLock};
 
 use patchbay_core::Home;
@@ -111,7 +111,10 @@ struct Inner {
 struct Slot {
     server: Server,
     status: RwLock<Status>,
+    /// Its tools, under their own names: with the server's `tool_prefix` taken off any that had it.
     tools: RwLock<Vec<Tool>>,
+    /// The tools that had the prefix taken off, so a call puts it back on only those.
+    unprefixed: RwLock<BTreeSet<String>>,
     peer: RwLock<Option<Peer<RoleClient>>>,
     /// Held while starting, so two clients asking at once start it once; holds the connection, which stops the
     /// server when it's dropped.
@@ -181,6 +184,7 @@ impl Gateway {
                             Status::Off
                         }),
                         tools: RwLock::default(),
+                        unprefixed: RwLock::default(),
                         peer: RwLock::default(),
                         client: Mutex::default(),
                     })
@@ -322,7 +326,10 @@ impl Gateway {
                 match peer.list_all_tools().await {
                     Ok(tools) => {
                         tracing::info!(server = name, tools = tools.len(), "connected");
+                        let (tools, unprefixed) =
+                            without_prefix(slot.server.tool_prefix.as_deref(), tools);
                         *write(&slot.tools) = tools;
+                        *write(&slot.unprefixed) = unprefixed;
                         *write(&slot.peer) = Some(peer);
                         *client = Some(connected);
                         Status::Running
@@ -402,6 +409,14 @@ impl Slot {
         *write(&self.status) = status;
     }
 
+    /// The name the server itself knows `tool` by, with its prefix put back if Patchbay took it off.
+    fn downstream_name(&self, tool: &str) -> String {
+        match &self.server.tool_prefix {
+            Some(prefix) if read(&self.unprefixed).contains(tool) => format!("{prefix}{tool}"),
+            _ => tool.to_string(),
+        }
+    }
+
     async fn stop(&self) {
         let mut client = self.client.lock().await;
         *write(&self.peer) = None;
@@ -412,6 +427,28 @@ impl Slot {
             self.set_status(Status::Idle);
         }
     }
+}
+
+/// `tools` with `prefix` taken off the names that start with it, and which those were. A name that would be left
+/// empty, or that another tool already has without the prefix, keeps its prefix, so no two tools share a name.
+fn without_prefix(prefix: Option<&str>, mut tools: Vec<Tool>) -> (Vec<Tool>, BTreeSet<String>) {
+    let mut unprefixed = BTreeSet::new();
+    let Some(prefix) = prefix else {
+        return (tools, unprefixed);
+    };
+    let names: BTreeSet<String> = tools.iter().map(|tool| tool.name.to_string()).collect();
+    for tool in &mut tools {
+        let Some(short) = tool.name.strip_prefix(prefix) else {
+            continue;
+        };
+        if short.is_empty() || names.contains(short) || unprefixed.contains(short) {
+            continue;
+        }
+        let short = short.to_string();
+        unprefixed.insert(short.clone());
+        tool.name = short.into();
+    }
+    (tools, unprefixed)
 }
 
 /// The gateway's own token, which clients send to reach it, made the first time it's asked for.
@@ -436,4 +473,49 @@ fn read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
 fn write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
     lock.write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use rmcp::model::Tool;
+
+    use super::without_prefix;
+
+    fn named(names: &[&str]) -> Vec<Tool> {
+        names
+            .iter()
+            .map(|name| Tool::new(name.to_string(), "", Arc::new(serde_json::Map::new())))
+            .collect()
+    }
+
+    fn names(tools: &[Tool]) -> Vec<&str> {
+        tools.iter().map(|tool| tool.name.as_ref()).collect()
+    }
+
+    #[test]
+    fn a_servers_own_prefix_comes_off_its_tools_names() {
+        let (tools, unprefixed) = without_prefix(
+            Some("Clock_MCP-"),
+            named(&["Clock_MCP-now", "Clock_MCP-echo", "other"]),
+        );
+        assert_eq!(names(&tools), ["now", "echo", "other"]);
+        assert_eq!(unprefixed.into_iter().collect::<Vec<_>>(), ["echo", "now"]);
+    }
+
+    #[test]
+    fn a_name_keeps_its_prefix_rather_than_be_empty_or_taken() {
+        let (tools, unprefixed) =
+            without_prefix(Some("x-"), named(&["x-", "x-now", "now", "x-a", "x-x-a"]));
+        assert_eq!(names(&tools), ["x-", "x-now", "now", "a", "x-x-a"]);
+        assert_eq!(unprefixed.into_iter().collect::<Vec<_>>(), ["a"]);
+    }
+
+    #[test]
+    fn without_a_prefix_the_tools_are_as_the_server_names_them() {
+        let (tools, unprefixed) = without_prefix(None, named(&["Clock_MCP-now"]));
+        assert_eq!(names(&tools), ["Clock_MCP-now"]);
+        assert!(unprefixed.is_empty());
+    }
 }
