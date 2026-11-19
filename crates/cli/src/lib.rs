@@ -74,8 +74,8 @@ const USAGE: &str = "usage: patchbay <command>
                             <profile>, <profile>/compact
   --version, --help
 
-With no arguments, opens Patchbay. Your servers are in
-~/Library/Application Support/tech.phin.patchbay/patchbay.toml (PATCHBAY_HOME moves it).";
+With no arguments, opens Patchbay. Your servers are in ~/.config/patchbay/patchbay.toml
+(XDG_CONFIG_HOME or PATCHBAY_HOME moves it).";
 
 /// The usage, with the skills commands in their place.
 fn usage() -> String {
@@ -184,6 +184,14 @@ impl Command {
 
     async fn run_async(self, out: &mut impl Write) -> anyhow::Result<()> {
         let home = Home::from_env();
+        // Standard error, since `bridge` speaks to its client on standard output.
+        for (path, error) in home.move_old_files() {
+            eprintln!(
+                "patchbay: couldn't move {} to {}: {error}",
+                path.display(),
+                home.config().display()
+            );
+        }
         let secrets: Arc<dyn Secrets> = patchbay_core::secrets::from_env(&home);
         match self {
             Command::Serve => {

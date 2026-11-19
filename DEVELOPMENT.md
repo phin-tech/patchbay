@@ -19,10 +19,13 @@ You need rustup (`rust-toolchain.toml` names the toolchain), `just`, `uv`, and X
 
 ## Settings
 
-The Settings window (⌘,) keeps its choices in `~/Library/Application Support/tech.phin.patchbay/settings.toml`, through
+The Settings window (⌘,) keeps its choices in `~/.config/patchbay/config.toml` (`XDG_CONFIG_HOME` moves it), through
 `Settings` in `crates/core`, which is where a new setting goes: a field with a default, so an old file still reads.
 A file this version doesn't understand gives the defaults, and saving keeps keys it doesn't know. Captures use none.
-The main window's place is kept beside them, in `state.toml`, and put back unless its display has gone.
+The servers, `patchbay.toml`, are beside it. Both were in Application Support until 0.1, and `Home::move_old_files`
+moves them at launch. What the app keeps for itself stays in `~/Library/Application Support/tech.phin.patchbay`: the
+main window's place in `state.toml`, put back unless its display has gone, the database, and team checkouts.
+`PATCHBAY_HOME` puts all of it in one folder.
 
 The window is [Typecase](https://git.phin.tech/sam/typecase)'s frame, a sidebar of sections, listed in `sections()` in
 `crates/app/src/settings.rs`; a new setting is drawn in one of them, or a section of its own. Appearance is Typecase's

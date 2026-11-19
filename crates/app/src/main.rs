@@ -36,6 +36,12 @@ fn main() {
     }
     let _log = logging::init();
     crash::install();
+    // Before anything reads the settings or the servers, so they're found where this version looks for them.
+    if !cfg!(feature = "screenshot") {
+        for (path, error) in patchbay_core::Home::from_env().move_old_files() {
+            tracing::warn!(path = %path.display(), %error, "couldn't move to the config folder");
+        }
+    }
     language::choose();
     // The bridge starts the app to have its gateway, without a window in front of whatever the person is doing.
     let background = args.iter().any(|arg| arg == "--background");

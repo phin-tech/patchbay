@@ -1,15 +1,24 @@
 //! Where Patchbay keeps its own files, which the app and the command line share.
 
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::manifest::{Layer, Manifest, Scope};
 
-/// Patchbay's folder: `~/Library/Application Support/tech.phin.patchbay`, or `PATCHBAY_HOME` if it's set, so tests
-/// and trials never touch the real one.
+/// Patchbay's folders: `~/Library/Application Support/tech.phin.patchbay` for what it keeps for itself, and
+/// `~/.config/patchbay` for what a person edits (the settings and their servers), so a dotfiles repository can hold
+/// those. `PATCHBAY_HOME` puts both in one folder, so tests and trials never touch the real ones.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Home {
     root: PathBuf,
+    config: PathBuf,
 }
+
+/// The files that moved from Application Support to the config folder: the name each had, and the one it has now.
+const MOVED: [(&str, &str); 2] = [
+    ("settings.toml", "config.toml"),
+    ("patchbay.toml", "patchbay.toml"),
+];
 
 /// The port the gateway listens on unless the settings say otherwise.
 pub const DEFAULT_PORT: u16 = 7357;
@@ -23,26 +32,75 @@ pub fn port() -> u16 {
 }
 
 impl Home {
+    /// Everything in one folder, `root`.
     pub fn new(root: impl Into<PathBuf>) -> Home {
-        Home { root: root.into() }
+        let root = root.into();
+        Home {
+            config: root.clone(),
+            root,
+        }
     }
 
-    /// `PATCHBAY_HOME`, or the folder in Application Support.
+    /// What Patchbay keeps for itself in `root`, and what a person edits in `config`.
+    pub fn with_config(root: impl Into<PathBuf>, config: impl Into<PathBuf>) -> Home {
+        Home {
+            root: root.into(),
+            config: config.into(),
+        }
+    }
+
+    /// `PATCHBAY_HOME` for both, or the folder in Application Support and `patchbay` in `XDG_CONFIG_HOME`
+    /// (`~/.config`).
     pub fn from_env() -> Home {
         if let Some(root) = std::env::var_os("PATCHBAY_HOME") {
             return Home::new(root);
         }
         let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from);
-        Home::new(home.join("Library/Application Support/tech.phin.patchbay"))
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| home.join(".config"), PathBuf::from);
+        Home::with_config(
+            home.join("Library/Application Support/tech.phin.patchbay"),
+            config.join("patchbay"),
+        )
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// The folder of what a person edits.
+    pub fn config(&self) -> &Path {
+        &self.config
+    }
+
     /// The person's own manifest.
     pub fn manifest(&self) -> PathBuf {
-        self.root.join("patchbay.toml")
+        self.config.join("patchbay.toml")
+    }
+
+    /// What's set in the Settings window.
+    pub fn settings(&self) -> PathBuf {
+        self.config.join("config.toml")
+    }
+
+    /// Moves the settings and the manifest from where 0.1 kept them, in Application Support, to the
+    /// config folder, once: a file already in the config folder wins, and the old one is left where it is. Gives
+    /// each file that couldn't be moved and why, so the caller can say so; it stays where it was, to try again.
+    pub fn move_old_files(&self) -> Vec<(PathBuf, io::Error)> {
+        if self.root == self.config {
+            return Vec::new();
+        }
+        MOVED
+            .into_iter()
+            .filter_map(|(old, new)| {
+                let (old, new) = (self.root.join(old), self.config.join(new));
+                if !old.is_file() || new.symlink_metadata().is_ok() {
+                    return None;
+                }
+                move_file(&old, &new).err().map(|error| (old, error))
+            })
+            .collect()
     }
 
     /// Where each team subscription is checked out, one folder each, named for its scope.
@@ -89,9 +147,75 @@ impl Home {
     }
 }
 
+/// Renames `old` to `new`, or copies it and removes `old` when they're on different volumes, as a `~/.config` linked
+/// into a dotfiles repository on another disk can be.
+fn move_file(old: &Path, new: &Path) -> io::Result<()> {
+    if let Some(folder) = new.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    if std::fs::rename(old, new).is_ok() {
+        return Ok(());
+    }
+    crate::write_atomically(new, &std::fs::read(old)?)?;
+    std::fs::remove_file(old)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Home, Scope};
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("patchbay-home-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("support")).unwrap();
+        root
+    }
+
+    #[test]
+    fn the_settings_and_servers_move_from_application_support_to_the_config_folder() {
+        let root = scratch("move");
+        let home = Home::with_config(root.join("support"), root.join("config"));
+        std::fs::write(home.root().join("settings.toml"), "text_scale = 1.3\n").unwrap();
+        std::fs::write(home.root().join("patchbay.toml"), "[servers.x]\n").unwrap();
+        std::fs::write(home.root().join("state.toml"), "kept").unwrap();
+        assert!(home.move_old_files().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(home.settings()).unwrap(),
+            "text_scale = 1.3\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.manifest()).unwrap(),
+            "[servers.x]\n"
+        );
+        assert!(!home.root().join("settings.toml").exists());
+        assert!(!home.root().join("patchbay.toml").exists());
+        assert!(home.root().join("state.toml").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_file_already_in_the_config_folder_is_never_replaced_by_an_old_one() {
+        let root = scratch("kept");
+        let home = Home::with_config(root.join("support"), root.join("config"));
+        std::fs::create_dir_all(home.config()).unwrap();
+        std::fs::write(home.settings(), "new").unwrap();
+        std::fs::write(home.root().join("settings.toml"), "old").unwrap();
+        assert!(home.move_old_files().is_empty());
+        assert_eq!(std::fs::read_to_string(home.settings()).unwrap(), "new");
+        assert!(home.root().join("settings.toml").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn one_folder_for_both_moves_nothing() {
+        let root = scratch("one");
+        let home = Home::new(root.join("support"));
+        std::fs::write(home.root().join("settings.toml"), "old").unwrap();
+        assert!(home.move_old_files().is_empty());
+        assert!(home.root().join("settings.toml").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn layers_are_each_team_by_name_then_your_own() {
