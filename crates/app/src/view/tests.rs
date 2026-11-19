@@ -847,3 +847,86 @@ fn claude_with_a_project_server(project: &std::path::Path) -> String {
         project.display()
     )
 }
+
+#[gpui_kit::test]
+fn a_server_a_team_only_offers_is_turned_on_in_your_own_manifest(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, "# Mine, beside a team that offers Linear.\n");
+    cx.update(|_, cx| {
+        let running = cx.global::<gateway::Running>();
+        let home = running.gateway.home();
+        std::fs::create_dir_all(home.teams().join("phin-tech")).unwrap();
+        std::fs::write(
+            home.teams().join("phin-tech/patchbay.toml"),
+            "[servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\nenabled = false\n",
+        )
+        .unwrap();
+        running.reload_now();
+    });
+    view.update_in(cx, |view, window, cx| {
+        view.set_enabled("linear", true, window, cx)
+    });
+    assert!(
+        manifest(cx).contains("[servers.linear]\nenabled = true"),
+        "{}",
+        manifest(cx)
+    );
+}
+
+/// git in `repo`, as someone who commits there.
+fn git(repo: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(repo)
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args([
+            "-c",
+            "init.defaultBranch=main",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}");
+}
+
+#[gpui_kit::test]
+fn a_teams_changes_wait_in_the_window_until_theyre_accepted(cx: &mut TestAppContext) {
+    use patchbay_core::subscription;
+    let (view, cx) = open(cx, "# Mine, beside a subscribed team.\n");
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().gateway.home().clone());
+    let repo = home.root().join("team-repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let team = "[team]\nname = \"Phin Tech\"\n\n[servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\nauth = \"oauth\"\n";
+    std::fs::write(repo.join("patchbay.toml"), team).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "Sentry"]);
+    let url = format!("file://{}", repo.display());
+    let pending = subscription::subscribe(&home, &url, Default::default()).unwrap();
+    subscription::accept(&home, &pending).unwrap();
+    let changed = format!("{team}\n[servers.notion]\nurl = \"https://mcp.notion.com/mcp\"\n");
+    std::fs::write(repo.join("patchbay.toml"), &changed).unwrap();
+    git(&repo, &["commit", "-q", "-am", "Notion"]);
+
+    view.update_in(cx, |view, window, cx| view.check_teams(true, window, cx));
+    cx.run_until_parked();
+    let kept = home.teams().join("phin-tech/patchbay.toml");
+    assert_eq!(
+        std::fs::read_to_string(&kept).unwrap(),
+        team,
+        "a check only looks"
+    );
+    view.update_in(cx, |view, window, cx| {
+        assert_eq!(view.teams.updates.keys().collect::<Vec<_>>(), ["phin-tech"]);
+        view.run("teams.review", window, cx);
+        assert_eq!(view.teams.reviewing.as_deref(), Some("phin-tech"));
+        let pending = view.teams.updates["phin-tech"].clone();
+        view.accept_team(pending, window, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&kept).unwrap(), changed);
+    view.read_with(cx, |view, _| {
+        assert!(view.teams.updates.is_empty());
+        assert!(view.teams.reviewing.is_none());
+    });
+}

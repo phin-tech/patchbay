@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::clients::Client;
 
 pub mod discover;
-mod fetch;
+pub(crate) mod fetch;
 mod hash;
 mod lock;
 pub mod request;

@@ -114,12 +114,26 @@ how much.
 
 ### Sharing with a team
 
-- **Subscribe** with a git URL (Forgejo or GitHub) or a `patchbay://subscribe?url=…` link. Patchbay clones it into
-  Application Support and records the commit in `patchbay.lock`.
-- **A manifest runs commands on your Mac**, so nothing new runs unreviewed. Subscribing, and every update after it,
-  shows what changed: servers added or removed, commands, args, URLs, which secrets are wanted. You accept it, and
-  only then does the lock move. Updates are checked in the background, and the app says "Phin Tech has 2 changes to
-  review".
+- **Subscribe** with a git URL (Forgejo or GitHub) or `owner/repo`, optionally on a branch and under a name of the
+  person's own. Patchbay clones it shallowly into a temporary folder, reads its top `patchbay.toml`, and keeps only
+  that file, at `teams/<folder>/patchbay.toml`, once it's accepted. `patchbay.lock` in Application Support records
+  each team's URL, branch and accepted commit.
+- **A manifest runs commands on your Mac**, so nothing new runs unreviewed. A fetched manifest is **pending**, held
+  in memory and never written where layers are read. Subscribing, and every update after it, shows what changed:
+  each server, secret and profile added, removed or changed, field by field, and the skills. Accepting writes exactly
+  the text shown and moves the lock to its commit; it's refused if the team was accepted at another commit
+  meanwhile. The command line prints the commit and takes it back with `--accept`. A new commit that changes only
+  comments is taken in without asking.
+- **Checks** ask the remote (`git ls-remote`) first, so a team that hasn't moved costs no clone. The app checks at
+  launch and hourly, and lists each team with changes above the servers.
+- **The folder is fixed at subscribe time**, whatever the team renames itself to, since it begins the team's
+  Keychain accounts.
+- **What's on and what's offered** is the team's to say: `enabled = false` offers a server, and only the skills in
+  `[skills] install` are installed, from its `sources` (`.` is the team's own repository). A person's own layer
+  turns either kind on or off. A dropped server takes the person's switch for it with it. A dropped skill stays,
+  and a skill of the person's own is never replaced.
+- **Not yet**: `patchbay://subscribe` links, which a web page could open, so they'd only ever open the subscribe
+  panel.
 - **Publishing** is a git push to the team repo. `patchbay export <server>` writes a server from your layer as team
   TOML with its secrets as references, ready to paste.
 
@@ -199,8 +213,10 @@ see what Patchbay installed. (This replaces an earlier plan for a store and lock
 
 - **Sources** are written as the CLI takes them: `owner/repo`, `owner/repo@skill`, `owner/repo/path`, GitHub and
   GitLab URLs (with `/tree/<ref>/<path>`), `github:`/`gitlab:`, a `#ref@skill` fragment, any other git URL
-  (git.phin.tech, SSH, `file://`), or a folder. A whole `npx skills add … --skill … -a …` line can be pasted into the
-  window or given to `patchbay skills add`. Repositories are searched by the CLI's rules: `SKILL.md` at the top,
+  (git.phin.tech, SSH, `file://`), or a folder. With the GitHub CLI installed, git asks `gh auth git-credential`
+  for a sign-in after its own helpers, so private GitHub repositories work for skills and teams alike.
+  A whole `npx skills add … --skill … -a …` line can be pasted into the window or given to `patchbay skills add`.
+  Repositories are searched by the CLI's rules: `SKILL.md` at the top,
   `skills/` and its `.curated`/`.experimental`/`.system`, clients' own skills folders, `skills.sh.json`'s paths and
   Claude plugin manifests, then any `SKILL.md` five deep. git runs with no prompts and a timeout.
 - **The store** is `~/.agents/skills/<name>/`, named as the CLI names it from the frontmatter. Each skill is linked
@@ -218,7 +234,7 @@ see what Patchbay installed. (This replaces an earlier plan for a store and lock
 - **Skills no lock records are left alone**: a folder or link of the person's own, in the store or a client's folder,
   is shown as "Your own" and never replaced or removed. Installing over one is refused, and a client whose folder
   already has one of that name is skipped and said so.
-- **Not yet**: installing what a manifest's `[skills]` names, project (not global) installs, and the CLI's
+- **Not yet**: project (not global) installs, and the CLI's
   `well-known` and download sources.
 
 ## The app
@@ -233,7 +249,8 @@ Built with Typecase's parts and the shared look (`typecase::shell`, 0.29):
     its tools and their switches. The **filter bar** narrows it (`server:github is:write is:off`).
   - Clients: each detected client, its profile, Connect and Disconnect.
   - Skills: installed, available from sources, and updates, with the diff.
-  - Teams: subscriptions, pending changes to review.
+  - Teams: in the Servers place for now: Subscribe to a Team… in its menu, and each team's pending changes above
+    the list, reviewed in place of the chosen server.
 - **Secret and sign-in sheets** as above, using `typecase-keychain`.
 - **Command palette** (⌘K), **toasts** ("Connected Cursor · Undo"), **Settings** (port, open at login, agents'
   skills folders), **Welcome** at first launch: detect clients, subscribe to a team, connect.

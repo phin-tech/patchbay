@@ -41,6 +41,7 @@ mod rack;
 mod servers;
 mod share;
 mod skills;
+mod teams;
 
 pub use editor::Editing;
 use editor::Editor;
@@ -144,6 +145,8 @@ pub struct MainView {
     pub importing: Option<import::Importing>,
     /// The skills on this Mac, the one chosen, and any being added.
     pub skills: skills::SkillsState,
+    /// Teams being subscribed to, and the changes teams have waiting to be looked at.
+    pub teams: teams::TeamsState,
     /// The manifests' profiles, `default` first.
     profiles: Vec<String>,
     /// Each profile's servers.
@@ -164,6 +167,8 @@ pub struct MainView {
     _fields: Vec<Subscription>,
     _filters: Vec<Subscription>,
     _watch: Task<()>,
+    /// Checks the teams' repositories every so often.
+    _teams: Task<()>,
     _appearance: Subscription,
     _bounds: Subscription,
     _settings: Subscription,
@@ -234,6 +239,7 @@ impl MainView {
             exporting: None,
             importing: None,
             skills: skills::SkillsState::default(),
+            teams: teams::TeamsState::default(),
             profiles: Vec::new(),
             profile_servers: BTreeMap::new(),
             problems: Vec::new(),
@@ -246,6 +252,7 @@ impl MainView {
             _fields: Vec::new(),
             _filters: filter_subscriptions,
             _watch: watch,
+            _teams: Task::ready(()),
             _appearance: appearance,
             _bounds: bounds,
             // A skills folder chosen in Settings changes where each client's skills are, so they're read again.
@@ -254,6 +261,13 @@ impl MainView {
             }),
         };
         view.sync(window, cx);
+        // Not in a test, which checks teams itself; a capture's team is a repository on this Mac.
+        if cx
+            .try_global::<Running>()
+            .is_some_and(|running| running.background)
+        {
+            view._teams = Self::watch_teams(window, cx);
+        }
         view
     }
 
@@ -294,6 +308,9 @@ impl MainView {
         match name {
             "servers.add" => self.start_editing(Editing::New, window, cx),
             "servers.add-team" => self.start_editing(Editing::Team, window, cx),
+            "teams.subscribe" => self.start_subscribing(window, cx),
+            "teams.check" => self.check_teams(true, window, cx),
+            "teams.review" => self.review_teams(window, cx),
             "servers.export" => self.start_export(window, cx),
             "servers.import" => self.start_import(cx),
             "clients.take-over" => self.start_taking_over(window, cx),
@@ -437,6 +454,13 @@ impl MainView {
         }
         if waiting > 0 {
             footer = footer.line(t!("%{count} need you", count = waiting).into_owned());
+        }
+        match self.teams.updates.len() {
+            0 => {}
+            1 => footer = footer.line(t!("A team has changed").into_owned()),
+            count => {
+                footer = footer.line(t!("%{count} teams have changed", count = count).into_owned());
+            }
         }
         v_flex()
             .flex_none()

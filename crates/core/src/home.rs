@@ -119,6 +119,11 @@ impl Home {
         self.root.join("teams")
     }
 
+    /// `patchbay.lock`: the repository each subscribed team comes from, and the commit of it last accepted.
+    pub fn subscriptions(&self) -> PathBuf {
+        self.root.join("patchbay.lock")
+    }
+
     /// What the running gateway says about itself, for the command line and clients to find it.
     pub fn gateway_file(&self) -> PathBuf {
         self.root.join("gateway.toml")

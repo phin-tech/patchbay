@@ -15,6 +15,7 @@ use patchbay_core::{Home, version};
 use patchbay_gateway::{Gateway, GatewayFile, View, client_entries, gateway_token, oauth};
 
 mod skills;
+mod teams;
 
 /// What a command line asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +54,8 @@ pub enum Command {
     Clients,
     /// `skills add`, `list`, `remove`, `check` and `update`, as `npx skills` takes them.
     Skills(skills::Skills),
+    /// `teams`, `teams add`, `check` and `update`: a team's servers and skills from its git repository.
+    Teams(teams::Teams),
     /// A command it knows, said wrongly.
     Wrong(String),
 }
@@ -69,6 +72,7 @@ const USAGE: &str = "usage: patchbay <command>
                             name), an entry for each server, or three tools that find and call the rest
   disconnect <client>       take Patchbay's entries out of a client
 {SKILLS}
+{TEAMS}
   serve                     run the gateway without the app
   bridge [route]            the gateway over stdio, for a client to run: default, server/<name>,
                             <profile>, <profile>/compact
@@ -79,7 +83,9 @@ With no arguments, opens Patchbay. Your servers are in ~/.config/patchbay/patchb
 
 /// The usage, with the skills commands in their place.
 fn usage() -> String {
-    USAGE.replace("{SKILLS}", skills::USAGE)
+    USAGE
+        .replace("{SKILLS}", skills::USAGE)
+        .replace("{TEAMS}", teams::USAGE)
 }
 
 /// The command `args` (without the program's name) ask for, or none, to open the app.
@@ -113,6 +119,7 @@ pub fn parse<S: AsRef<str>>(args: &[S]) -> Option<Command> {
         "connect" => client(1).and_then(|client| connect_options(client, &args[2..])),
         "disconnect" => client(1).map(|client| Command::Disconnect { client }),
         "skills" => skills::parse(&args[1..]).map(Command::Skills),
+        "teams" | "team" => teams::parse(&args[1..]).map(Command::Teams),
         _ => return None,
     };
     Some(command.unwrap_or_else(Command::Wrong))
@@ -292,6 +299,15 @@ impl Command {
                 .await?;
                 writeln!(out, "Signed in to {server}.")?;
                 reload(&home, secrets.as_ref(), out).await;
+            }
+            Command::Teams(command) => {
+                let settings = patchbay_core::Settings::load(&home.settings());
+                let folders =
+                    patchbay_core::skills::Folders::from_env(user_home()).chosen_in(&settings);
+                // git can take a while, and blocks; the runtime has nothing else to do meanwhile.
+                if command.run(&home, &folders, out)? {
+                    reload(&home, secrets.as_ref(), out).await;
+                }
             }
             Command::SignOut { server } => {
                 secrets.remove(&format!("oauth/{server}"));

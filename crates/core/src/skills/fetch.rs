@@ -58,6 +58,41 @@ impl Fetched {
     }
 }
 
+/// The commit the branch or tag `reference` (or the default branch) of the repository at `url` is at, asked of the
+/// remote without fetching anything.
+pub fn remote_head(url: &str, reference: Option<&str>) -> Result<String, SkillsError> {
+    let wanted = reference.unwrap_or("HEAD");
+    let said = output(
+        git(Path::new(".")).args(["ls-remote", "--", url, wanted]),
+        url,
+    )?;
+    // A tag peeled to its commit (`refs/tags/v1^{}`) is the one to compare, so it wins over the tag itself.
+    let lines: Vec<(&str, &str)> = said
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .collect();
+    lines
+        .iter()
+        .find(|(_, name)| name.ends_with("^{}"))
+        .or_else(|| lines.first())
+        .map(|(commit, _)| (*commit).to_string())
+        .ok_or_else(|| SkillsError::Fetch(format!("{url} has no {wanted}")))
+}
+
+impl Fetched {
+    /// The commit a clone is at.
+    pub fn commit(&self) -> Option<String> {
+        if !self.temporary {
+            return None;
+        }
+        let output = git(&self.root).args(["rev-parse", "HEAD"]).output().ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
 /// Fetches `source`.
 pub fn fetch(source: &Source) -> Result<Fetched, SkillsError> {
     if source.kind == Kind::Local {
@@ -115,9 +150,14 @@ pub fn fetch(source: &Source) -> Result<Fetched, SkillsError> {
     Ok(fetched)
 }
 
-/// git in `folder`, asking for nothing.
+/// git in `folder`, asking for nothing. With the GitHub CLI on this Mac, git asks it for a sign-in after any helper of
+/// its own, so a private repository on GitHub is reached with the account `gh auth login` signed in to.
 fn git(folder: &Path) -> Command {
     let mut git = Command::new("git");
+    if let Some(gh) = gh() {
+        // `-c` adds to the helpers git's config names rather than replacing them, so a saved sign-in still comes first.
+        git.arg("-c").arg(credential_helper(gh));
+    }
     git.current_dir(folder)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_ASKPASS", "")
@@ -129,10 +169,83 @@ fn git(folder: &Path) -> Command {
     git
 }
 
+/// The GitHub CLI, found once: on the `PATH`, or where Homebrew puts it, since an app opened from the Finder has only
+/// the system's `PATH`.
+fn gh() -> Option<&'static Path> {
+    static GH: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    GH.get_or_init(|| {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path)
+            .chain(["/opt/homebrew/bin".into(), "/usr/local/bin".into()])
+            .map(|folder| folder.join("gh"))
+            .find(|gh| gh.is_file())
+    })
+    .as_deref()
+}
+
+/// The setting that has git ask `gh` for a sign-in, as `gh auth setup-git` writes it.
+fn credential_helper(gh: &Path) -> String {
+    let quoted = gh.display().to_string().replace('\'', "'\\''");
+    format!("credential.helper=!'{quoted}' auth git-credential")
+}
+
+/// What a git command writes, once it's run to its end.
+fn output(command: &mut Command, url: &str) -> Result<String, SkillsError> {
+    let mut written = std::env::temp_dir().join(format!(
+        "patchbay-git-{}-{}",
+        std::process::id(),
+        OUTPUTS.fetch_add(1, Ordering::Relaxed)
+    ));
+    written.set_extension("out");
+    // Into a file rather than a pipe, so a long answer can't fill the pipe while `run` waits for git to end.
+    let file = std::fs::File::create(&written)
+        .map_err(|error| SkillsError::Fetch(format!("couldn't run git: {error}")))?;
+    let ran = run_with(command.stdout(file), url);
+    let said = std::fs::read_to_string(&written).unwrap_or_default();
+    let _ = std::fs::remove_file(&written);
+    ran.map(|()| said)
+}
+
+static OUTPUTS: AtomicUsize = AtomicUsize::new(0);
+
+/// What git says when a repository wants a sign-in it wasn't given, or doesn't let this one in, in any case.
+pub(crate) const DENIED: [&str; 6] = [
+    "authentication",
+    "could not read username",
+    "permission denied",
+    "terminal prompts disabled",
+    "repository not found",
+    "access denied",
+];
+
+/// The line of git's complaint worth showing: the one saying it was refused, if it says so, since an SSH refusal
+/// ends with advice ("and the repository exists."); otherwise its last `fatal:`, or its last line.
+pub(crate) fn telling_line(said: &str) -> &str {
+    let lines: Vec<&str> = said
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines
+        .iter()
+        .find(|line| {
+            let lower = line.to_lowercase();
+            DENIED.iter().any(|word| lower.contains(word))
+        })
+        .or_else(|| lines.iter().rev().find(|line| line.starts_with("fatal:")))
+        .or_else(|| lines.last())
+        .copied()
+        .unwrap_or("git failed")
+}
+
 /// Runs a git command to its end, or stops it after [`CLONE_TIMEOUT`].
 fn run(command: &mut Command, url: &str) -> Result<(), SkillsError> {
+    run_with(command.stdout(Stdio::null()), url)
+}
+
+/// Runs a git command whose output is already set, to its end, or stops it after [`CLONE_TIMEOUT`].
+fn run_with(command: &mut Command, url: &str) -> Result<(), SkillsError> {
     let mut child = command
-        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| SkillsError::Fetch(format!("couldn't run git: {error}")))?;
@@ -145,13 +258,10 @@ fn run(command: &mut Command, url: &str) -> Result<(), SkillsError> {
                 if let Some(mut stderr) = child.stderr.take() {
                     let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
                 }
-                let said = said
-                    .trim()
-                    .lines()
-                    .last()
-                    .unwrap_or("git failed")
-                    .to_string();
-                return Err(SkillsError::Fetch(format!("{url}: {said}")));
+                return Err(SkillsError::Fetch(format!(
+                    "{url}: {}",
+                    telling_line(&said)
+                )));
             }
             Ok(None) if started.elapsed() > CLONE_TIMEOUT => {
                 let _ = child.kill();
@@ -163,5 +273,36 @@ fn run(command: &mut Command, url: &str) -> Result<(), SkillsError> {
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(error) => return Err(SkillsError::Fetch(error.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{credential_helper, telling_line};
+
+    #[test]
+    fn git_asks_the_github_cli_for_a_sign_in_wherever_it_is() {
+        assert_eq!(
+            credential_helper(std::path::Path::new("/opt/homebrew/bin/gh")),
+            "credential.helper=!'/opt/homebrew/bin/gh' auth git-credential"
+        );
+        assert_eq!(
+            credential_helper(std::path::Path::new("/Users/o'neill/bin/gh")),
+            "credential.helper=!'/Users/o'\\''neill/bin/gh' auth git-credential"
+        );
+    }
+
+    #[test]
+    fn a_refused_ssh_clone_says_it_was_refused_not_the_advice_after() {
+        let said = "git@github.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n";
+        assert_eq!(
+            telling_line(said),
+            "git@github.com: Permission denied (publickey)."
+        );
+        assert_eq!(
+            telling_line("Cloning into 'x'...\nfatal: repository 'x' does not exist\n"),
+            "fatal: repository 'x' does not exist"
+        );
+        assert_eq!(telling_line(""), "git failed");
     }
 }

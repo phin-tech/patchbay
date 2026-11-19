@@ -39,6 +39,8 @@ impl MainView {
         self.editor = None;
         self.exporting = None;
         self.importing = None;
+        self.teams.subscribing = None;
+        self.teams.reviewing = None;
         cx.notify();
     }
 
@@ -57,7 +59,7 @@ impl MainView {
         let old = std::fs::read_to_string(&path).unwrap_or_default();
         let changed = match &team {
             None => edit::remove(&old, name),
-            Some(_) => edit::set_enabled(&old, name, false),
+            Some(_) => edit::set_enabled(&old, name, false, true),
         };
         let written = changed.map_err(|error| error.to_string()).and_then(|text| {
             patchbay_core::write_atomically(&path, text.as_bytes())
@@ -110,6 +112,7 @@ impl MainView {
                         })),
                 ),
             )
+            .children(self.team_updates_banner(cx))
             .when(!self.problems.is_empty(), |this| {
                 this.child(
                     v_flex()
@@ -173,6 +176,9 @@ impl MainView {
         }
         if let Some(importing) = &self.importing {
             return self.import_panel(importing, cx);
+        }
+        if let Some(panel) = self.teams_panel(cx) {
+            return panel;
         }
         let Some(server) = self
             .server

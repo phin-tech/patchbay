@@ -70,6 +70,8 @@ patchbay bridge server/linear           # a server over stdio, for a tool that o
 patchbay skills add vercel-labs/agent-skills --skill web-design-guidelines
 patchbay skills list                    # every skill, where it's from, and which tools have it
 patchbay skills update                  # fetch what's changed at each skill's source
+patchbay teams add git@git.example.com:acme/patchbay-team.git   # a team's servers and skills
+patchbay teams check                    # which teams have changes to look at
 ```
 
 ## More
@@ -77,6 +79,7 @@ patchbay skills update                  # fetch what's changed at each skill's s
 - [Your servers: patchbay.toml](docs/servers.md)
 - [Your tools: clients and layouts](docs/clients.md)
 - [Your skills](docs/skills.md)
+- [Your team's servers and skills](docs/teams.md)
 - [Building and releasing Patchbay](DEVELOPMENT.md)
 
 Patchbay is made by Phin Tech, in Rust on [GPUI](https://gpui.rs), [gpui-kit](https://gpui-kit.com) and

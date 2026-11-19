@@ -12,7 +12,8 @@ mod template;
 
 pub use filter::ToolFilter;
 pub use layer::{
-    Auth, Launch, Layer, Problem, Resolved, Scope, Scoped, SecretPrompt, Server, resolve,
+    Auth, Launch, Layer, Problem, Resolved, Scope, Scoped, SecretPrompt, Server, enabled_beneath,
+    resolve,
 };
 pub use template::{MissingSecret, Template, TemplateError};
 
@@ -140,7 +141,7 @@ pub struct SkillsSpec {
 }
 
 impl SkillsSpec {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.sources.is_empty() && self.install.is_empty()
     }
 }
