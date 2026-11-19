@@ -1,0 +1,22 @@
+# What app-release (`just ship` and friends) knows about Patchbay. Every key: src/app_release/config.py
+# in https://git.phin.tech/sam/app-release. Top-level keys go before the tables.
+kind = "cargo-app"
+app = "Patchbay"
+slug = "patchbay"
+bundle_id = "tech.phin.patchbay"
+description = "One place for your MCP servers and agent skills, shared with your team"
+team_id = "J35P7AJDN7"
+op_item = "op://Development/lc6wrq7lltjd47uue26cdxttzu"
+
+[cargo]
+package = "patchbay"
+info_plist = "packaging/Info.plist"
+icon = "packaging/AppIcon.icns"
+entitlements = "packaging/app.entitlements"
+# Sparkle.framework goes in the app, with SUFeedURL pointing where the zips go; Info.plist holds SUPublicEDKey.
+sparkle = "2.10.0"
+
+# On the download page: the phin-apps bucket on Cloudflare R2, through the cf CLI (`cf auth login`). Under the name it
+# shows the description above. allow = ["someone@gmail.com"] keeps it to those people, after signing in (Cloudflare
+# Access), but not with Sparkle, which can't sign in; pin = true lists it first.
+[downloads]

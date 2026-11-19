@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>tech.phin.patchbay</string>
+      <key>CFBundleURLSchemes</key><array><string>patchbay</string></array>
+    </dict>
+  </array>
+  <key>SUPublicEDKey</key><string>2mirghhdXOaz0RtSlgkR5MOzQxF+QkubzK9tgq8eO8U=</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+</dict>
+</plist>

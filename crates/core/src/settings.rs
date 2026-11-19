@@ -1,0 +1,187 @@
+//! What a person has set in the Settings window, kept as a small TOML file. Every setting has a default, a file that's
+//! missing or can't be read gives the defaults, and a setting this version doesn't know is left alone.
+
+use std::fs;
+use std::io;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use crate::files::write_atomically;
+
+/// The light or dark look: following the system, or fixed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// The themes the app starts with, Typecase's, by name.
+pub const LIGHT_THEME: &str = "Typecase Light";
+pub const DARK_THEME: &str = "Typecase Dark";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub appearance: Appearance,
+    /// The theme shown while the app is light, and while it's dark, by name: one of Typecase's, chosen in Settings.
+    pub light_theme: String,
+    pub dark_theme: String,
+    /// How much bigger than the theme's sizes text is drawn: one of [`TEXT_SCALES`].
+    pub text_scale: f32,
+    /// The shortcut that brings the app forward from any app, as `global-hotkey` reads it: `ctrl+alt+super+Space`.
+    pub hotkey: String,
+    /// Whether Sparkle offers betas, which come before a release. A beta starts with them on, so it keeps getting
+    /// them until they're switched off; a tester moves on to the release that follows, since builds only go up.
+    pub beta_updates: bool,
+    /// Whether Patchbay leaves the Dock while none of its windows is open, keeping only its menu bar icon.
+    pub hide_dock: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings {
+            appearance: Appearance::default(),
+            light_theme: LIGHT_THEME.to_string(),
+            dark_theme: DARK_THEME.to_string(),
+            text_scale: DEFAULT_TEXT_SCALE,
+            hotkey: "ctrl+alt+super+Space".to_string(),
+            beta_updates: crate::VERSION.contains("-beta"),
+            hide_dock: true,
+        }
+    }
+}
+
+/// The text size a new install starts at, and Actual Size goes back to: a step above the theme's own, which reads
+/// small at a desk.
+pub const DEFAULT_TEXT_SCALE: f32 = 1.15;
+
+/// The text sizes on offer, as multiples of the theme's own.
+pub const TEXT_SCALES: [f32; 7] = [0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0];
+
+/// The scale `steps` along from `current`, staying inside the range. A saved scale that isn't one of the steps moves
+/// to the nearest.
+pub fn step_text_scale(current: f32, steps: isize) -> f32 {
+    let nearest = TEXT_SCALES
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| (*a - current).abs().total_cmp(&(*b - current).abs()))
+        .map_or(1, |(index, _)| index);
+    let index = (nearest as isize + steps).clamp(0, TEXT_SCALES.len() as isize - 1);
+    TEXT_SCALES[index as usize]
+}
+
+impl Settings {
+    /// The settings in `path`, or the defaults if there's no file there or it doesn't parse.
+    pub fn load(path: &Path) -> Settings {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| toml::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    /// Writes the settings to `path`, making its folder if need be. Settings the file has that this version doesn't
+    /// know are kept, so going back and forth between versions loses nothing.
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        let mut table: toml::Table = fs::read_to_string(path)
+            .ok()
+            .and_then(|text| text.parse().ok())
+            .unwrap_or_default();
+        let ours = toml::Table::try_from(self).map_err(io::Error::other)?;
+        table.extend(ours);
+        let text = toml::to_string(&table).map_err(io::Error::other)?;
+        write_atomically(path, text.as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Appearance, Settings, TEXT_SCALES, step_text_scale};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("settings-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        folder.join("settings.toml")
+    }
+
+    #[test]
+    fn settings_come_back_as_they_were_saved() {
+        let path = scratch("round-trip");
+        let settings = Settings {
+            appearance: Appearance::Dark,
+            light_theme: "Gruvppuccin Light".to_string(),
+            dark_theme: "Nightbrew Cove".to_string(),
+            text_scale: 1.3,
+            hotkey: "ctrl+alt+super+KeyN".to_string(),
+            beta_updates: true,
+            hide_dock: false,
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path), settings);
+    }
+
+    #[test]
+    fn a_settings_file_reads_plainly() {
+        let settings = Settings {
+            appearance: Appearance::System,
+            light_theme: "Typecase Light".to_string(),
+            dark_theme: "Typecase Dark".to_string(),
+            text_scale: 1.0,
+            hotkey: "ctrl+alt+super+Space".to_string(),
+            beta_updates: false,
+            hide_dock: true,
+        };
+        let text = toml::to_string(&settings).unwrap();
+        insta::assert_snapshot!(text, @r#"
+        appearance = "system"
+        light_theme = "Typecase Light"
+        dark_theme = "Typecase Dark"
+        text_scale = 1.0
+        hotkey = "ctrl+alt+super+Space"
+        beta_updates = false
+        hide_dock = true
+        "#);
+    }
+
+    #[test]
+    fn a_missing_or_broken_file_gives_the_defaults() {
+        let path = scratch("broken");
+        assert_eq!(Settings::load(&path), Settings::default());
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "appearance = [").unwrap();
+        assert_eq!(Settings::load(&path), Settings::default());
+    }
+
+    #[test]
+    fn saving_keeps_settings_from_another_version() {
+        let path = scratch("unknown");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "appearance = \"light\"\nfrom_the_future = 3\n").unwrap();
+        let mut settings = Settings::load(&path);
+        assert_eq!(settings.appearance, Appearance::Light);
+        settings.appearance = Appearance::System;
+        settings.save(&path).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("from_the_future = 3"), "{text}");
+        assert!(text.contains("appearance = \"system\""), "{text}");
+    }
+
+    #[test]
+    fn text_size_steps_stop_at_both_ends() {
+        let last = TEXT_SCALES[TEXT_SCALES.len() - 1];
+        assert_eq!(step_text_scale(1.0, 1), 1.15);
+        assert_eq!(step_text_scale(1.0, -5), TEXT_SCALES[0]);
+        assert_eq!(step_text_scale(last, 1), last);
+    }
+
+    #[test]
+    fn an_odd_saved_text_size_steps_from_the_nearest() {
+        assert_eq!(step_text_scale(1.2, 0), 1.15);
+        assert_eq!(step_text_scale(9.0, -1), 1.75);
+    }
+}

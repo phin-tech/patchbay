@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What the app may do under the hardened runtime, given to codesign by `just run` and a release alike. Add a key and
+     its usage string in Info.plist when the app needs one: the camera, the calendar, Apple events to other apps. -->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>

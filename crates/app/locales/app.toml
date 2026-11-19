@@ -1,0 +1,8 @@
+# Translations of what the app shows, keyed by the English text, which shows wherever there's no translation.
+# Add a language by adding it to each entry, as `fr = "Général"` would below. Tests hold every entry to text the app
+# still shows (`t!("…")` in src/), and to having every language the other entries have. rust-i18n needs one entry
+# at least, which is why English is spelt out here.
+_version = 2
+
+["General"]
+en = "General"

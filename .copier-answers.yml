@@ -1,0 +1,23 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v0.6.0
+_src_path: ./gpu-template
+app_category: public.app-category.developer-tools
+app_name: Patchbay
+app_slug: patchbay
+bundle_id: tech.phin.patchbay
+database: true
+description: One place for your MCP servers and agent skills, shared with your team
+document_extension: ''
+downloads: true
+github_releases: false
+include_cli: true
+install_on_macs: false
+license: Apache-2.0
+macos_min: '14.0'
+menu_bar_extra: true
+op_item: op://Development/lc6wrq7lltjd47uue26cdxttzu
+open_at_login: true
+sparkle_public_key: 2mirghhdXOaz0RtSlgkR5MOzQxF+QkubzK9tgq8eO8U=
+team_id: J35P7AJDN7
+updates: true
+url_scheme: patchbay

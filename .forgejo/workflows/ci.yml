@@ -1,0 +1,18 @@
+# Only the trigger: the steps are in .ci.star, and starci reads why the run started from Forgejo's environment. Runs on
+# the Mac registered with the `macos` label, which needs rustup and starci on its PATH.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: macos
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: starci run .

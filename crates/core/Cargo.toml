@@ -1,0 +1,29 @@
+[package]
+name = "patchbay-core"
+description = "What Patchbay does, free of UI."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+jiff.workspace = true
+typecase-keychain.workspace = true
+# Clients' configs: JSON keeping its key order, and TOML keeping its comments.
+serde_json = { version = "1", features = ["preserve_order"] }
+toml_edit = "0.25"
+# SQLite compiled in, so the app needs nothing from the system's.
+rusqlite = { version = "0.41", features = ["bundled"] }
+
+[dev-dependencies]
+insta.workspace = true
+
+# The build script reads the build number out of the workspace's Cargo.toml.
+[build-dependencies]
+toml.workspace = true

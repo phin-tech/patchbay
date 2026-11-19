@@ -1,0 +1,17 @@
+# The release tool, app-release (https://git.phin.tech/sam/app-release), pinned; what it knows about Patchbay is
+# in release.toml. To move to a newer one, change the pin, then `uv lock --upgrade-package app-release --project
+# scripts/release`. app-release is private, so uv's git clone needs a credential for https://git.phin.tech (a Forgejo
+# token in a git credential helper).
+[project]
+name = "patchbay-release"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["app-release"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Keep this on the newest tag, as every project that publishes to apps.phin.tech is: a release redraws the whole page
+# with the app-release it runs. After changing it, `uv lock --upgrade-package app-release --project scripts/release`.
+app-release = { git = "https://git.phin.tech/sam/app-release", tag = "v1.10.1" }

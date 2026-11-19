@@ -1,0 +1,47 @@
+[package]
+name = "patchbay"
+description = "One place for your MCP servers and agent skills, shared with your team"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+typecase.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+jiff.workspace = true
+# The kit's own translations use it too, so one choice of language reaches both.
+rust-i18n = "4"
+sys-locale = "0.3"
+# The element inspector, with `just inspect`: never in a release.
+gpui-devtools = { version = "0.5", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+patchbay-core.workspace = true
+patchbay-cli.workspace = true
+patchbay-gateway.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+futures = "0.3"
+# The menu bar extra and its shortcut, and decoding its icon.
+tray-icon = "0.26"
+global-hotkey = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+objc2-service-management = "0.3"
+# For loading Sparkle, which the release build carries, at launch.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+insta.workspace = true
+toml.workspace = true
+
+[features]
+# Frame capture lives behind GPUI's test support.
+screenshot = ["gpui-kit/test-support"]
+devtools = ["dep:gpui-devtools", "gpui-kit/inspector"]

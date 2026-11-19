@@ -1,0 +1,4 @@
+# GPUI follows new Rust closely, so the toolchain moves deliberately, together with gpui-kit.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

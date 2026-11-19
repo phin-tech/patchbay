@@ -1,0 +1,69 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+# The first `version` in this file is the app's: app-release reads and bumps it.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# An app, not a library: nothing here goes to crates.io.
+publish = false
+license = "Apache-2.0"
+
+[workspace.dependencies]
+patchbay-core = { path = "crates/core" }
+patchbay-cli = { path = "crates/cli" }
+patchbay-gateway = { path = "crates/gateway" }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+tracing = "0.1"
+thiserror = "2"
+anyhow = "1"
+jiff = "0.2"
+insta = { version = "1", features = ["filters"] }
+# Pins the matching GPUI snapshot, whose API moves quickly; bump this deliberately.
+gpui-kit = "=0.9.1"
+# Phin Tech's shared GPUI parts, on the same gpui-kit: the palette, Keys, the Settings window and the themes. Bump it
+# with gpui-kit, and the patch below with it. Next to a checkout, `path = "../typecase"` changes both at once.
+typecase = { git = "https://git.phin.tech/sam/typecase.git", tag = "v0.29.0" }
+# Secrets in the Keychain, from the same tag: what the gateway injects into servers and the OAuth tokens it keeps.
+typecase-keychain = { git = "https://git.phin.tech/sam/typecase.git", tag = "v0.29.0" }
+
+# The build number, which app-release bumps along with the version above.
+[workspace.metadata.release]
+build = "1"
+
+# Typecase's patched gpui-base, from the same tag as Typecase. It changes nothing the app doesn't ask for; see
+# vendor/README.md there.
+[patch.crates-io]
+gpui-base = { git = "https://git.phin.tech/sam/typecase.git", tag = "v0.29.0" }
+
+# GPUI is slow unoptimised, so a debug build still optimises it, and only it.
+[profile.dev]
+debug = "limited"
+split-debuginfo = "unpacked"
+
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-macos = { opt-level = 3 }
+
+# Line tables keep a crash's backtrace readable without full debug info.
+[profile.release]
+lto = "thin"
+debug = "line-tables-only"
+
+# A release build with full symbols, for Instruments: `just profile`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
+
+[workspace.lints.rust]
+# Unsafe code goes only where the Objective-C runtime needs it, each module saying why.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+dbg_macro = "warn"
+todo = "warn"

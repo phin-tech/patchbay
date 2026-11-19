@@ -1,0 +1,3 @@
+# typos (`just lint`): spelling in code, comments and docs. Translations are in other languages on purpose.
+[files]
+extend-exclude = ["Cargo.lock", "scripts/release/uv.lock", "LICENSE", "crates/app/locales/"]
