@@ -74,9 +74,15 @@ pub fn remove(text: &str, name: &str) -> Result<String, ManifestError> {
     Ok(doc.to_string())
 }
 
-/// The manifest `text` turning the server `name` on or off: how a team's server is left out without changing the
-/// team's manifest.
-pub fn set_enabled(text: &str, name: &str, enabled: bool) -> Result<String, ManifestError> {
+/// The manifest `text` turning the server `name` on or off: how a team's server is left out, or one it only offers
+/// turned on, without changing the team's manifest. `beneath` is whether the layers under this one leave it on; a
+/// switch saying the same is taken out rather than written.
+pub fn set_enabled(
+    text: &str,
+    name: &str,
+    enabled: bool,
+    beneath: bool,
+) -> Result<String, ManifestError> {
     let mut doc = document(text)?;
     let servers = section(&mut doc, "servers")?;
     let server = servers
@@ -84,10 +90,10 @@ pub fn set_enabled(text: &str, name: &str, enabled: bool) -> Result<String, Mani
         .or_insert_with(|| Item::Table(Table::new()))
         .as_table_mut()
         .ok_or_else(|| ManifestError(format!("`servers.{name}` isn't a table")))?;
-    if enabled {
+    if enabled == beneath {
         server.remove("enabled");
     } else {
-        server.insert("enabled", toml_edit::value(false));
+        server.insert("enabled", toml_edit::value(enabled));
     }
     // A table left with nothing in it said only that the server was off.
     if server.is_empty() {
@@ -260,9 +266,17 @@ mod tests {
 
     #[test]
     fn a_teams_server_is_turned_off_and_on_in_your_own_manifest() {
-        let off = set_enabled(MINE, "github", false).unwrap();
+        let off = set_enabled(MINE, "github", false, true).unwrap();
         assert!(off.contains("[servers.github]\nenabled = false"), "{off}");
-        let on = set_enabled(&off, "github", true).unwrap();
+        let on = set_enabled(&off, "github", true, true).unwrap();
         assert!(!on.contains("github"), "{on}");
+    }
+
+    #[test]
+    fn a_server_a_team_only_offers_is_turned_on_in_your_own_manifest_and_off_again() {
+        let on = set_enabled(MINE, "linear", true, false).unwrap();
+        assert!(on.contains("[servers.linear]\nenabled = true"), "{on}");
+        let off = set_enabled(&on, "linear", false, false).unwrap();
+        assert!(!off.contains("linear"), "{off}");
     }
 }

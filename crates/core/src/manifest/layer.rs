@@ -314,6 +314,17 @@ impl Draft {
     }
 }
 
+/// Whether the teams' layers among `layers` leave the server `name` on, before the person's own has its say: a team
+/// can offer a server without turning it on.
+pub fn enabled_beneath(layers: &[Layer], name: &str) -> bool {
+    layers
+        .iter()
+        .rev()
+        .filter(|layer| layer.scope != Scope::Me)
+        .find_map(|layer| layer.manifest.servers.get(name)?.enabled)
+        .unwrap_or(true)
+}
+
 /// The servers, profiles and secrets `layers` add up to, lowest first. A later layer changes only the fields it
 /// sets; `env` and `headers` change key by key.
 pub fn resolve(layers: &[Layer]) -> Resolved {

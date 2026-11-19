@@ -104,6 +104,8 @@ impl MainView {
         };
         let read = read(&body, cx);
         self.exporting = None;
+        self.teams.subscribing = None;
+        self.teams.reviewing = None;
         self.place = Place::Servers;
         self.editor = Some(Editor { mode, body, read });
         cx.notify();

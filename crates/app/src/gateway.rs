@@ -71,6 +71,7 @@ pub fn init(cx: &mut App) {
         let manifest = format!("{STARTER}\n[profiles.issues]\nservers = [\"linear\"]\n");
         let _ = std::fs::write(home.manifest(), manifest);
         let stand_in = home.root().join("client-home");
+        seed_team(&home);
         init_with(home, Secrets::Memory, cx);
         seed_skills(&stand_in);
         seed_servers(&stand_in);
@@ -114,6 +115,70 @@ fn seed_servers(home: &std::path::Path) {
         r#"{"mcpServers": {"notion": {"command": "npx", "args": ["-y", "@notionhq/notion-mcp-server"], "env": {"NOTION_TOKEN": "made-up"}}, "github": {"url": "https://api.githubcopilot.com/mcp/"}}}"#,
     );
 }
+
+/// Subscribes a capture's home to a team kept in a repository beside it, then changes the team, so a frame shows a
+/// team's changes waiting to be looked at: the window's first check finds them, as it would a real team's.
+fn seed_team(home: &Home) {
+    let repo = home.root().join("team-repo");
+    let _ = std::fs::create_dir_all(&repo);
+    let git = |args: &[&str]| {
+        let _ = std::process::Command::new("git")
+            .current_dir(&repo)
+            .args([
+                "-c",
+                "user.name=Patchbay",
+                "-c",
+                "user.email=shot@example.com",
+            ])
+            .args([
+                "-c",
+                "init.defaultBranch=main",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .output();
+    };
+    let commit = |text: &str| {
+        let _ = std::fs::write(repo.join("patchbay.toml"), text);
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "The team's servers"]);
+    };
+    git(&["init", "-q"]);
+    commit(TEAM_SHOT);
+    let url = format!("file://{}", repo.display());
+    let subscribed = patchbay_core::subscription::subscribe(home, &url, Default::default())
+        .and_then(|pending| patchbay_core::subscription::accept(home, &pending));
+    if let Err(error) = subscribed {
+        tracing::warn!(%error, "no team in the capture");
+        return;
+    }
+    commit(
+        &TEAM_SHOT
+            .replace("server@1.2.0", "server@1.3.1")
+            .replace(
+                "[servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\nauth = \"oauth\"\n",
+                "[servers.notion]\nurl = \"https://mcp.notion.com/mcp\"\nauth = \"oauth\"\nenabled = false\n",
+            ),
+    );
+}
+
+/// The team a capture subscribes to.
+const TEAM_SHOT: &str = r#"[team]
+name = "Phin Tech"
+
+[secrets.brave-key]
+prompt = "A Brave Search API key"
+
+[servers.brave-search]
+command = "npx"
+args = ["-y", "@brave/brave-search-mcp-server@1.2.0"]
+env = { BRAVE_API_KEY = "secret:brave-key" }
+
+[servers.sentry]
+url = "https://mcp.sentry.dev/mcp"
+auth = "oauth"
+"#;
 
 /// Puts two skills in a capture's stand-in home, so a frame of Skills shows what a row can be: one installed from a
 /// repository and linked into Claude Code, and one of the person's own in Cursor.

@@ -58,6 +58,41 @@ impl Fetched {
     }
 }
 
+/// The commit the branch or tag `reference` (or the default branch) of the repository at `url` is at, asked of the
+/// remote without fetching anything.
+pub fn remote_head(url: &str, reference: Option<&str>) -> Result<String, SkillsError> {
+    let wanted = reference.unwrap_or("HEAD");
+    let said = output(
+        git(Path::new(".")).args(["ls-remote", "--", url, wanted]),
+        url,
+    )?;
+    // A tag peeled to its commit (`refs/tags/v1^{}`) is the one to compare, so it wins over the tag itself.
+    let lines: Vec<(&str, &str)> = said
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .collect();
+    lines
+        .iter()
+        .find(|(_, name)| name.ends_with("^{}"))
+        .or_else(|| lines.first())
+        .map(|(commit, _)| (*commit).to_string())
+        .ok_or_else(|| SkillsError::Fetch(format!("{url} has no {wanted}")))
+}
+
+impl Fetched {
+    /// The commit a clone is at.
+    pub fn commit(&self) -> Option<String> {
+        if !self.temporary {
+            return None;
+        }
+        let output = git(&self.root).args(["rev-parse", "HEAD"]).output().ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
 /// Fetches `source`.
 pub fn fetch(source: &Source) -> Result<Fetched, SkillsError> {
     if source.kind == Kind::Local {
@@ -129,10 +164,33 @@ fn git(folder: &Path) -> Command {
     git
 }
 
+/// What a git command writes, once it's run to its end.
+fn output(command: &mut Command, url: &str) -> Result<String, SkillsError> {
+    let mut written = std::env::temp_dir().join(format!(
+        "patchbay-git-{}-{}",
+        std::process::id(),
+        OUTPUTS.fetch_add(1, Ordering::Relaxed)
+    ));
+    written.set_extension("out");
+    // Into a file rather than a pipe, so a long answer can't fill the pipe while `run` waits for git to end.
+    let file = std::fs::File::create(&written)
+        .map_err(|error| SkillsError::Fetch(format!("couldn't run git: {error}")))?;
+    let ran = run_with(command.stdout(file), url);
+    let said = std::fs::read_to_string(&written).unwrap_or_default();
+    let _ = std::fs::remove_file(&written);
+    ran.map(|()| said)
+}
+
+static OUTPUTS: AtomicUsize = AtomicUsize::new(0);
+
 /// Runs a git command to its end, or stops it after [`CLONE_TIMEOUT`].
 fn run(command: &mut Command, url: &str) -> Result<(), SkillsError> {
+    run_with(command.stdout(Stdio::null()), url)
+}
+
+/// Runs a git command whose output is already set, to its end, or stops it after [`CLONE_TIMEOUT`].
+fn run_with(command: &mut Command, url: &str) -> Result<(), SkillsError> {
     let mut child = command
-        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| SkillsError::Fetch(format!("couldn't run git: {error}")))?;

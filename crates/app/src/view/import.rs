@@ -56,6 +56,8 @@ impl MainView {
             .collect();
         self.editor = None;
         self.exporting = None;
+        self.teams.subscribing = None;
+        self.teams.reviewing = None;
         self.place = Place::Servers;
         self.importing = Some(Importing {
             gathered: gather(&client_home(cx), &known),

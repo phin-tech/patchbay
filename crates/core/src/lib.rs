@@ -19,6 +19,7 @@ pub mod share;
 pub mod skills;
 mod state;
 pub mod strand;
+pub mod subscription;
 
 pub use files::write_atomically;
 pub use home::{DEFAULT_PORT, Home, port};

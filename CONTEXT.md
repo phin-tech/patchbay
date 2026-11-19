@@ -17,6 +17,16 @@ _Avoid_: config (that's a client's file)
 
 **Layer**: one manifest and whose it is (a team's, or "me"). Layers stack, lowest first, into what the gateway runs.
 
+**Subscription**: a team's layer kept from its git repository, at the commit last accepted, as `patchbay.lock`
+records it. A pasted team has none.
+
+**Pending**: a team's manifest fetched but not yet accepted, with what it changes. Nothing pending reaches the
+gateway.
+_Avoid_: update, which skills use for a source that's moved on
+
+**Offered**: a team's server it writes `enabled = false` for, or a skill in its sources it doesn't `install`: listed
+for everyone, on for those who turn it on.
+
 **Server**: an MCP server a manifest names, run as a command or reached at a URL.
 _Avoid_: downstream, upstream
 

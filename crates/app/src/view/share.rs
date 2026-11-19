@@ -36,6 +36,8 @@ impl MainView {
         });
         self.editor = None;
         self.importing = None;
+        self.teams.subscribing = None;
+        self.teams.reviewing = None;
         self.place = Place::Servers;
         self.exporting = Some(Exporting {
             chosen: self
@@ -167,9 +169,11 @@ impl MainView {
         let Some(running) = cx.try_global::<Running>() else {
             return;
         };
-        let path = running.gateway.home().manifest();
+        let home = running.gateway.home();
+        let path = home.manifest();
         let old = std::fs::read_to_string(&path).unwrap_or_default();
-        let written = edit::set_enabled(&old, name, on)
+        let beneath = patchbay_core::manifest::enabled_beneath(&home.layers().0, name);
+        let written = edit::set_enabled(&old, name, on, beneath)
             .map_err(|error| error.to_string())
             .and_then(|text| {
                 patchbay_core::write_atomically(&path, text.as_bytes())

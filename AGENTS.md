@@ -17,6 +17,9 @@ headless; `crates/app` is the GPUI front end. Read `CONTEXT.md` before naming an
 - `crates/core/src/skills/`: skills, installed into the store and lock the `skills` CLI (skills.sh) uses, so both
   manage the same ones; `docs/design.md` says how. `view/skills.rs` is the Skills place, `crates/cli/src/skills.rs`
   `patchbay skills`. Tests give it a stand-in home (`Folders::new`), never the real `~/.agents`.
+- `crates/core/src/subscription.rs`: teams kept from a git repository, `patchbay.lock`, checking and accepting;
+  `view/teams.rs` subscribes and reviews, `crates/cli/src/teams.rs` is `patchbay teams`. A fetched manifest is never
+  written under `teams/` until it's accepted, since the gateway runs whatever is there.
 - `login_item.rs`: Open at login, in Settings.
 - `menu_bar.rs`: the menu bar extra and its shortcut (`hotkey` in the settings file).
 - `about.rs`: About, and what Keys (⌘/), Typecase's sheet over the main view, lists: every key by its menu. `logging.rs`: `tracing`, to stderr and

@@ -26,6 +26,27 @@ pub enum TeamError {
     NoTeam(String),
     #[error("{0}")]
     Files(String),
+    #[error("Give the URL of the team's git repository")]
+    NoUrl,
+    #[error("That isn't a team's repository: {0}")]
+    NotARepository(String),
+    #[error("{0} has no patchbay.toml at its top")]
+    NoManifest(String),
+    #[error("That manifest has no servers or skills in it")]
+    NothingShared,
+    #[error("You're subscribed to that repository already, as “{0}”")]
+    Subscribed(String),
+    #[error("There's a team kept as “{0}” already; give this one another name")]
+    Taken(String),
+    #[error("{0} was updated while you were looking; check it again")]
+    Stale(String),
+    #[error(
+        "{0} needs you signed in. Patchbay's git never asks, so clone it once in a terminal to save your sign-in, or use an SSH URL with a key ssh-agent holds"
+    )]
+    Denied(String),
+    /// What git said, which already says what it couldn't fetch.
+    #[error("{0}")]
+    Fetch(String),
 }
 
 /// A team taken out, with what's needed to put it back as it was.
@@ -36,6 +57,8 @@ pub struct Removed {
     pub team: String,
     /// The person's own manifest from before the team's servers' switches were taken out of it.
     pub mine: String,
+    /// The repository it was kept from, if it was subscribed to rather than pasted.
+    pub subscription: Option<crate::subscription::Subscription>,
 }
 
 /// A team's manifest, read from what was pasted.
@@ -154,12 +177,18 @@ pub fn remove(home: &Home, folder: &str) -> Result<Removed, TeamError> {
         crate::write_atomically(&home.manifest(), forgotten.as_bytes())
             .map_err(|error| TeamError::Files(error.to_string()))?;
     }
+    let mut subscriptions = crate::subscription::Subscriptions::read(home)?;
+    let subscription = subscriptions.teams.remove(folder);
+    if subscription.is_some() {
+        subscriptions.write(home)?;
+    }
     std::fs::remove_dir_all(home.teams().join(folder))
         .map_err(|error| TeamError::Files(error.to_string()))?;
     Ok(Removed {
         folder: folder.to_string(),
         team,
         mine,
+        subscription,
     })
 }
 
@@ -171,7 +200,15 @@ pub fn restore(home: &Home, removed: &Removed) -> Result<(), TeamError> {
         std::fs::create_dir_all(parent).map_err(files)?;
     }
     crate::write_atomically(&path, removed.team.as_bytes()).map_err(files)?;
-    crate::write_atomically(&home.manifest(), removed.mine.as_bytes()).map_err(files)
+    crate::write_atomically(&home.manifest(), removed.mine.as_bytes()).map_err(files)?;
+    if let Some(subscription) = &removed.subscription {
+        let mut subscriptions = crate::subscription::Subscriptions::read(home)?;
+        subscriptions
+            .teams
+            .insert(removed.folder.clone(), subscription.clone());
+        subscriptions.write(home)?;
+    }
+    Ok(())
 }
 
 /// `text` as the team `name`'s manifest, saying so in its `[team]`, and kept as it was otherwise (comments,
