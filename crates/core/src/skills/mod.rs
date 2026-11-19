@@ -243,7 +243,7 @@ impl Preview {
     /// Fetches `source` and finds its skills.
     pub fn fetch(source: Source) -> Result<Preview, SkillsError> {
         let fetched = fetch::fetch(&source)?;
-        let found = discover::discover(&fetched.root, source.subpath.as_deref());
+        let found = discover::discover(&fetched.root, source.subpath.as_deref(), fetched.links());
         if found.is_empty() {
             return Err(SkillsError::NoSkills(source.lock_source()));
         }
@@ -936,8 +936,13 @@ pub fn check(
                 .unwrap_or(&skill_path)
                 .trim_end_matches('/');
             let from = fetched.root.join(folder);
-            // An update is held to the source's folder as discovery is: a link there now could point anywhere.
-            let inside = fs::canonicalize(&fetched.root).unwrap_or_else(|_| fetched.root.clone());
+            // An update is held to the source's folder as discovery is: a link in a repository now could point anywhere.
+            let inside = match fetched.links() {
+                discover::Links::StayInside => {
+                    fs::canonicalize(&fetched.root).unwrap_or_else(|_| fetched.root.clone())
+                }
+                discover::Links::Followed => PathBuf::from("/"),
+            };
             if !from.join("SKILL.md").is_file() || !discover::within(&from, &inside) {
                 checked.unchecked.push((
                     name,

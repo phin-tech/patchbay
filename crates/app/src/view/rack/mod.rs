@@ -27,7 +27,7 @@ use patchbay_core::strand::Point as Spot;
 use patchbay_gateway::{ServerStatus, Status};
 use rust_i18n::t;
 
-use cables::{Cables, Lead, Motion};
+use cables::{Cables, Hung, Lead, Motion};
 use drag::{Drag, Outcome, Pair, Port, Side};
 use hardware::*;
 use layout::{Column, Module, Rect};
@@ -99,7 +99,6 @@ impl Rack {
 
 use super::clients::Given;
 use super::{ClientRow, MainView, Place, SIDEBAR_WIDTH};
-use crate::gateway::Running;
 
 /// Whether `skill` is one Patchbay looks after, so it can be linked to a client, rather than one of someone's own.
 fn linkable(skill: &Skill) -> bool {
@@ -360,7 +359,7 @@ impl MainView {
                 }
                 let (from, to) = rack.cable(client, server)?;
                 Some(Lead {
-                    key: pair.clone(),
+                    key: Hung::Plugged(pair.clone()),
                     color: lead_color(pair.0),
                     from,
                     to,
@@ -386,7 +385,7 @@ impl MainView {
                     lead_color(row.client)
                 };
                 leads.push(Lead {
-                    key: pair.clone(),
+                    key: Hung::Plugged(pair.clone()),
                     color,
                     from,
                     to,
@@ -402,14 +401,13 @@ impl MainView {
             .filter(|drag| drag.moved || drag.held.is_some())
             && let Some(anchor) = self.rack.jack(drag.fixed(), &drag.pressed, &self.servers)
         {
-            // Keyed as the Cable picked up, so it swings on from where it hung rather than starting again; a new one
-            // by the jack it's drawn from, which holds no Cable yet.
+            // Keyed as the Cable picked up, so it swings on from where it hung rather than starting again.
             let (from, to) = match drag.fixed() {
                 Side::Client => (anchor, drag.at),
                 Side::Server => (drag.at, anchor),
             };
             leads.push(Lead {
-                key: held.clone().unwrap_or_else(|| drag.pressed.clone()),
+                key: held.clone().map_or(Hung::Drawn, Hung::Plugged),
                 color: lead_color(drag.pressed.0),
                 from,
                 to,
@@ -426,9 +424,7 @@ impl MainView {
         }
         let shapes = self.rack.cables.shapes();
         let look = Look::of(cx);
-        let ready = cx
-            .try_global::<Running>()
-            .is_some_and(|running| running.url().is_some() && running.token.is_some());
+        let ready = super::clients::gateway_ready(cx);
         let lead_width = rem * 0.3;
         let origin = Rc::clone(&self.rack.origin);
         let dragging = drag.is_some();

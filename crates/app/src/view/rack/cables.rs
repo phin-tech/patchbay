@@ -9,10 +9,19 @@ use patchbay_core::strand::{self, Point as Spot, Strand};
 
 use super::drag::Pair;
 
-/// A Cable to hang: the client and what it goes to, its colour, and the jacks it's plugged into.
+/// Which Cable a Lead is, so it swings on from where it hung from one frame to the next.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Hung {
+    /// One plugged in, or picked up by its plug: the client and what it goes to.
+    Plugged(Pair),
+    /// A new one, drawn from a jack and not yet plugged in anywhere.
+    Drawn,
+}
+
+/// A Cable to hang: which it is, its colour, and the jacks it's plugged into.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lead {
-    pub key: Pair,
+    pub key: Hung,
     pub color: Hsla,
     pub from: Spot,
     pub to: Spot,
@@ -21,7 +30,7 @@ pub struct Lead {
 #[derive(Default)]
 pub struct Cables {
     /// Each Cable by what it joins, in a steady order, so the same Cable is always drawn over the same others.
-    strands: BTreeMap<Pair, (Hsla, Strand)>,
+    strands: BTreeMap<Hung, (Hsla, Strand)>,
     /// When the last frame was, while any Cable is moving.
     clock: Option<Instant>,
     /// Time not yet stepped, so steps stay the same length whatever the frame rate.
@@ -180,14 +189,14 @@ fn shine(color: Hsla) -> Hsla {
 #[cfg(test)]
 mod tests {
     use super::super::drag::Port;
-    use super::{Cables, Lead, Motion};
+    use super::{Cables, Hung, Lead, Motion};
     use gpui_kit::hsla;
     use patchbay_core::clients::Client;
     use patchbay_core::strand::Point;
 
     fn lead(server: &str) -> Lead {
         Lead {
-            key: (Client::Pi, Port::Server(server.to_string())),
+            key: Hung::Plugged((Client::Pi, Port::Server(server.to_string()))),
             color: hsla(0., 0.8, 0.5, 1.),
             from: Point::new(0., 0.),
             to: Point::new(200., 40.),

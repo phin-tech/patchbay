@@ -163,6 +163,7 @@ pub struct MainView {
     _watch: Task<()>,
     _appearance: Subscription,
     _bounds: Subscription,
+    _settings: Subscription,
 }
 
 impl MainView {
@@ -243,6 +244,10 @@ impl MainView {
             _watch: watch,
             _appearance: appearance,
             _bounds: bounds,
+            // A skills folder chosen in Settings changes where each client's skills are, so they're read again.
+            _settings: cx.observe_global_in::<crate::settings::Prefs>(window, |this, _, cx| {
+                this.sync_skills(cx);
+            }),
         };
         view.sync(window, cx);
         view

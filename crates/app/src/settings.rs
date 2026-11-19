@@ -21,7 +21,7 @@ use crate::update;
 use crate::{commands, theme};
 
 /// The settings, where they're kept, and the Settings window if it's open.
-struct Prefs {
+pub(crate) struct Prefs {
     settings: Settings,
     path: Option<PathBuf>,
     window: Option<AnyWindowHandle>,

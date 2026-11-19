@@ -127,9 +127,7 @@ impl MainView {
             return div().into_any_element();
         };
         let client = row.client;
-        let ready = cx
-            .try_global::<Running>()
-            .is_some_and(|running| running.url().is_some() && running.token.is_some());
+        let ready = gateway_ready(cx);
         let button = if row.connected() {
             Button::new("disconnect")
                 .ghost()
@@ -261,23 +259,18 @@ impl MainView {
     /// Offers, once for each client, to take over the servers it has of its own, now that it reaches Patchbay's.
     /// Only an offer: nothing leaves the client until the person chooses Take Over and then Add.
     fn offer_taking_over(&mut self, client: Client, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(running) = cx.try_global::<Running>() else {
-            return;
-        };
-        let home = running.gateway.home().clone();
-        let mut choices = Choices::load(&home);
-        let mut choice = choices.get(client);
-        if choice.offered_take_over {
+        let offered = cx.try_global::<Running>().is_none_or(|running| {
+            Choices::load(running.gateway.home())
+                .get(client)
+                .offered_take_over
+        });
+        if offered {
             return;
         }
         let Some(own) = client.own_servers_pasted(&client_home(cx), &own_server_names(cx)) else {
             return;
         };
-        choice.offered_take_over = true;
-        choices.set(client, choice);
-        if let Err(error) = choices.save(&home) {
-            tracing::warn!(%error, "couldn't keep that taking over was offered");
-        }
+        mark_offered(client, cx);
         let view = cx.entity().downgrade();
         Toast::new(t!(
             "%{client} has servers of its own: %{servers}. Patchbay can keep them, so every client gets them",
@@ -302,11 +295,28 @@ impl MainView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(client) = self.client else {
+        let Some(row) = self
+            .client
+            .and_then(|client| self.clients.iter().find(|row| row.client == client))
+        else {
             Toast::new(t!("Choose a client")).show(window, cx);
             return;
         };
+        let client = row.client;
         if on {
+            // As the Connect button allows: the gateway listening with its token, and the client on this Mac.
+            if !gateway_ready(cx) {
+                Toast::new(t!("Patchbay's gateway isn't ready to connect to yet")).show(window, cx);
+                return;
+            }
+            if !row.installed {
+                Toast::new(t!(
+                    "%{client} doesn't look installed on this Mac.",
+                    client = client.name()
+                ))
+                .show(window, cx);
+                return;
+            }
             self.connect(client, window, cx);
         } else {
             self.disconnect(client, window, cx);
@@ -349,6 +359,9 @@ impl MainView {
             return;
         };
         let mut choices = Choices::load(running.gateway.home());
+        // A choice from a row read before the offer was made mustn't make it again.
+        let mut choice = choice;
+        choice.offered_take_over |= choices.get(client).offered_take_over;
         choices.set(client, choice);
         if let Err(error) = choices.save(running.gateway.home()) {
             Toast::error(t!(
@@ -395,6 +408,8 @@ impl MainView {
             ))
             .show(window, cx);
         }
+        // Asked for, it needn't be offered too, as connecting at the end would.
+        mark_offered(client, cx);
         self.start_editing(Editing::New, window, cx);
         self.fill_paste(&own.pasted, window, cx);
         self.taking_over = Some(TakingOver {
@@ -774,4 +789,25 @@ fn own_server_names(cx: &App) -> Vec<String> {
         .and_then(|text| patchbay_core::manifest::Manifest::from_toml(&text).ok())
         .map(|manifest| manifest.servers.into_keys().collect())
         .unwrap_or_default()
+}
+
+/// Notes that taking over `client`'s own servers has been offered, or asked for, so it isn't offered again.
+fn mark_offered(client: Client, cx: &App) {
+    let Some(running) = cx.try_global::<Running>() else {
+        return;
+    };
+    let home = running.gateway.home();
+    let mut choices = Choices::load(home);
+    let mut choice = choices.get(client);
+    choice.offered_take_over = true;
+    choices.set(client, choice);
+    if let Err(error) = choices.save(home) {
+        tracing::warn!(%error, "couldn't keep that taking over was offered");
+    }
+}
+
+/// Whether the gateway is listening with its token, so a client can be pointed at it.
+pub(super) fn gateway_ready(cx: &App) -> bool {
+    cx.try_global::<Running>()
+        .is_some_and(|running| running.url().is_some() && running.token.is_some())
 }

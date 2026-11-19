@@ -101,6 +101,8 @@ impl Settings {
             .and_then(|text| text.parse().ok())
             .unwrap_or_default();
         let ours = toml::Table::try_from(self).map_err(io::Error::other)?;
+        // A setting left out while it's empty would otherwise keep what the file had, and come back at the next launch.
+        table.remove("skills_folders");
         table.extend(ours);
         let text = toml::to_string(&table).map_err(io::Error::other)?;
         write_atomically(path, text.as_bytes())
@@ -136,6 +138,19 @@ mod tests {
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
+    }
+
+    #[test]
+    fn a_skills_folder_put_back_to_the_usual_one_stays_put_back() {
+        let path = scratch("usual-again");
+        let mut settings = Settings::default();
+        settings
+            .skills_folders
+            .insert("cursor".into(), "~/elsewhere".into());
+        settings.save(&path).unwrap();
+        settings.skills_folders.clear();
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).skills_folders, BTreeMap::new());
     }
 
     #[test]

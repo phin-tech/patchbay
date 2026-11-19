@@ -29,6 +29,16 @@ impl Drop for Fetched {
 }
 
 impl Fetched {
+    /// Where its links may lead: only inside a clone of someone's repository, anywhere in a folder of the person's
+    /// own.
+    pub fn links(&self) -> super::discover::Links {
+        if self.temporary {
+            super::discover::Links::StayInside
+        } else {
+            super::discover::Links::Followed
+        }
+    }
+
     /// The git tree hash of `folder` in the clone, which is what the lock holds for a GitHub source: GitHub's API
     /// gives the same one.
     pub fn tree_hash(&self, folder: &str) -> Option<String> {

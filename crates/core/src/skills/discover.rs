@@ -38,15 +38,29 @@ const CLIENT_FOLDERS: &[&str] = &[
     ".pi/skills",
 ];
 
-/// The skills in `root`, or in `subpath` under it. Only what's inside `root`: a source is someone else's repository,
-/// and a link in it to a folder elsewhere on this Mac would otherwise copy that folder into the store.
-pub fn discover(root: &Path, subpath: Option<&str>) -> Vec<Found> {
+/// Where a source's links may lead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Links {
+    /// Only to what's inside it: a repository is someone else's, and a link in it to a folder elsewhere on this Mac
+    /// would copy that folder into the store.
+    StayInside,
+    /// Anywhere: a folder of the person's own, whose skills may be links into a dotfiles repository.
+    Followed,
+}
+
+/// The skills in `root`, or in `subpath` under it, following links as far as `links` lets them go.
+pub fn discover(root: &Path, subpath: Option<&str>, links: Links) -> Vec<Found> {
     let base = match subpath {
         Some(subpath) => root.join(subpath),
         None => root.to_path_buf(),
     };
-    let Ok(inside) = fs::canonicalize(root) else {
-        return Vec::new();
+    let inside = match links {
+        Links::StayInside => match fs::canonicalize(root) {
+            Ok(inside) => inside,
+            Err(_) => return Vec::new(),
+        },
+        // Every real path starts at the root of the disk.
+        Links::Followed => PathBuf::from("/"),
     };
     if !within(&base, &inside) {
         return Vec::new();
@@ -395,7 +409,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use super::{discover, frontmatter};
+    use super::{Links, discover, frontmatter};
 
     fn folder(name: &str) -> PathBuf {
         let folder =
@@ -415,7 +429,7 @@ mod tests {
     }
 
     fn names(root: &Path, subpath: Option<&str>) -> Vec<String> {
-        discover(root, subpath)
+        discover(root, subpath, Links::StayInside)
             .into_iter()
             .map(|found| found.name)
             .collect()
@@ -463,6 +477,12 @@ mod tests {
         let bare = folder("escape-bare");
         std::os::unix::fs::symlink(&outside, bare.join("out")).unwrap();
         assert_eq!(names(&bare, None), Vec::<String>::new());
+        // A folder of the person's own may link anywhere: its skills are theirs wherever they're kept.
+        let own: Vec<String> = discover(&root, None, Links::Followed)
+            .into_iter()
+            .map(|found| found.name)
+            .collect();
+        assert_eq!(own, ["a", "secret"]);
     }
 
     #[test]
@@ -482,7 +502,7 @@ mod tests {
             r#"{"plugins":[{"name":"p","source":"./plugins/p","skills":["./skills/e"]}]}"#,
         )
         .unwrap();
-        let found = discover(&root, None);
+        let found = discover(&root, None, Links::StayInside);
         assert_eq!(found[0].name, "e");
         assert_eq!(found[0].plugin.as_deref(), Some("p"));
     }
