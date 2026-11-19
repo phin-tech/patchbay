@@ -4,6 +4,10 @@ Patchbay's servers are in one file, `~/.config/patchbay/patchbay.toml`. Add Serv
 (⌘N) writes it for you, and **Edit patchbay.toml…** in the Servers menu opens it. After changing it by hand, choose
 **Reload Servers** (⌘R).
 
+The buttons beside the chosen server are in the Servers menu too, and so in the palette (⌘K): **Edit Server…**,
+**Turn Server On** and **Off**, **Restart Server**, **Sign In to Server…**, **Sign Out of Server**, **Change Server's
+Key…** and **Remove Server**.
+
 ![Adding a server by pasting it](media/add-server.png)
 
 ## A server

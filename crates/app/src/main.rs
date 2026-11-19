@@ -6,6 +6,7 @@ mod crash;
 mod database;
 mod dock;
 mod gateway;
+mod guides;
 mod language;
 mod logging;
 mod login_item;
@@ -21,6 +22,7 @@ mod shortcuts;
 mod theme;
 mod update;
 mod view;
+mod welcome;
 
 use gpui_kit::assets::AllAssets;
 
@@ -92,6 +94,11 @@ fn main() {
         }
         if let Some(first) = first {
             let _ = first.update(cx, |_, window, cx| crash::tell_if_crashed(window, cx));
+        }
+        // At a first launch with no client connected, Welcome says what Patchbay is and where to start. Not for the
+        // bridge, which starts the app without a window.
+        if !background {
+            welcome::open_if_new(cx);
         }
         #[cfg(feature = "screenshot")]
         screenshot::capture(cx);

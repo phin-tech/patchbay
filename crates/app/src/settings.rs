@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, StyledExt as _, button::Button,
+    ActiveTheme as _, Disableable as _, Selectable as _, StyledExt as _, button::Button,
     button::ButtonVariants as _, h_flex, switch::Switch, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -103,6 +103,16 @@ fn save(settings: &Settings, path: &Path) {
     }
 }
 
+/// The shortcut that brings Patchbay forward from any app, as the settings file writes it.
+pub fn current_hotkey(cx: &App) -> String {
+    current(cx).hotkey
+}
+
+/// Keeps the shortcut that brings Patchbay forward; `menu_bar::change` gives it to macOS.
+pub fn set_hotkey(written: String, cx: &mut App) {
+    change(cx, |settings| settings.hotkey = written);
+}
+
 /// Whether Patchbay leaves the Dock while no window is open; with one open now, it stays until that closes.
 pub fn set_hide_dock(on: bool, cx: &mut App) {
     change(cx, |settings| settings.hide_dock = on);
@@ -166,6 +176,11 @@ pub fn toggle_patch_bay(section: RackSection, cx: &mut App) {
 pub enum RackSection {
     Servers,
     Skills,
+}
+
+/// Whether the main window checks the teams' repositories every hour.
+pub fn set_check_teams(on: bool, cx: &mut App) {
+    change(cx, |settings| settings.check_teams = on);
 }
 
 /// Whether the main window has the patch bay, and opens on it.
@@ -232,6 +247,12 @@ fn sections() -> Vec<Section> {
         Section::new(t!("General").into_owned(), |_, cx| general(cx)).keywords(["text", "size"]),
         Section::appearance(),
         Section::new(t!("Skills").into_owned(), |_, cx| skills(cx)).keywords(["folders", "agents"]),
+        Section::new(t!("Teams").into_owned(), |_, cx| teams(cx)).keywords([
+            "subscribe",
+            "git",
+            "repository",
+            "check",
+        ]),
         Section::new(t!("Updates").into_owned(), |_, cx| updates(cx)).keywords(["beta", "sparkle"]),
     ]
 }
@@ -259,8 +280,65 @@ impl SettingsWindow {
         });
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        cx.set_global(Recording {
+            focus: Some(focus.clone()),
+            ..Recording::default()
+        });
         Self { frame, focus }
     }
+
+    /// The keys pressed for the shortcut waiting for them: Escape leaves it as it was.
+    fn pressed(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !cx
+            .try_global::<Recording>()
+            .is_some_and(|recording| recording.waiting)
+        {
+            return;
+        }
+        cx.stop_propagation();
+        let keystroke = &event.keystroke;
+        let plain = !(keystroke.modifiers.control
+            || keystroke.modifiers.alt
+            || keystroke.modifiers.platform);
+        let outcome = if keystroke.key == "escape" && plain {
+            Ok(())
+        } else {
+            crate::menu_bar::written(keystroke)
+                .and_then(|written| crate::menu_bar::change(&written, cx))
+        };
+        let recording = cx.global_mut::<Recording>();
+        match outcome {
+            Ok(()) => {
+                recording.waiting = false;
+                recording.refused = None;
+            }
+            // It goes on waiting, to be tried again.
+            Err(refused) => recording.refused = Some(refused),
+        }
+        window.refresh();
+    }
+}
+
+/// The menu bar shortcut while it's being chosen: waiting for keys, and why the last were refused.
+#[derive(Default)]
+struct Recording {
+    waiting: bool,
+    refused: Option<crate::menu_bar::Refused>,
+    /// The Settings window's own focus, which takes the keys so no field there does.
+    focus: Option<FocusHandle>,
+}
+
+impl Global for Recording {}
+
+/// Waits for the shortcut's new keys: the next ones pressed in the Settings window.
+fn record_hotkey(window: &mut Window, cx: &mut App) {
+    let recording = cx.default_global::<Recording>();
+    recording.waiting = true;
+    recording.refused = None;
+    if let Some(focus) = recording.focus.clone() {
+        focus.focus(window, cx);
+    }
+    window.refresh();
 }
 
 impl Render for SettingsWindow {
@@ -269,6 +347,10 @@ impl Render for SettingsWindow {
             .size_full()
             .track_focus(&self.focus)
             .key_context("Settings")
+            // Before any field or binding, so a shortcut being chosen takes the keys, ⌘Q's included.
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                this.pressed(event, window, cx);
+            }))
             .on_action(cx.listener(|_, action: &RunAction, window, cx| {
                 commands::run(action.name, window, cx);
             }))
@@ -363,6 +445,7 @@ fn general(cx: &mut App) -> Div {
                     )
                 }),
         ))
+        .child(part(t!("Menu Bar Shortcut"), hotkey(cx)))
         .child(part(
             t!("Text Size"),
             h_flex()
@@ -377,6 +460,168 @@ fn general(cx: &mut App) -> Div {
                         .text_sm()
                         .text_color(muted)
                         .child(format!("{:.0}%", settings.text_scale * 100.)),
+                ),
+        ))
+        .child(part(
+            t!("Getting Started"),
+            v_flex()
+                .gap_2()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("welcome")
+                                .outline()
+                                .label(t!("Show Welcome Again").into_owned())
+                                .on_click(|_, _, cx| crate::welcome::open(cx)),
+                        )
+                        .child(
+                            Button::new("tour")
+                                .outline()
+                                .label(t!("Take the Tour").into_owned())
+                                .on_click(|_, _, cx| crate::view::run_in_front("app.tour", cx)),
+                        ),
+                )
+                .child(
+                    div().text_sm().text_color(muted).child(
+                        t!("What Patchbay is and where to start, and a walk through the window. Both are in the Help menu too.")
+                            .into_owned(),
+                    ),
+                ),
+        ))
+}
+
+/// The shortcut that brings Patchbay forward from any app: its keys on a button, which waits for new ones.
+fn hotkey(cx: &mut App) -> Div {
+    let theme = cx.theme();
+    let (muted, danger) = (theme.muted_foreground, theme.danger);
+    let (waiting, refused) = cx
+        .try_global::<Recording>()
+        .map_or((false, None), |recording| {
+            (recording.waiting, recording.refused)
+        });
+    let label = if waiting {
+        t!("Press the keys…").into_owned()
+    } else {
+        crate::menu_bar::shown(&current(cx).hotkey)
+    };
+    let hint = match (refused, waiting) {
+        (Some(refused), _) => div().text_sm().text_color(danger).child(refused.said()),
+        (None, true) => div().text_sm().text_color(muted).child(
+            t!("Press the new shortcut, with ⌃, ⌥ or ⌘. Escape leaves it as it was.").into_owned(),
+        ),
+        (None, false) => div().text_sm().text_color(muted).child(
+            t!(
+                "Brings %{app} forward from any app, as the menu bar icon does.",
+                app = "Patchbay"
+            )
+            .into_owned(),
+        ),
+    };
+    v_flex()
+        .gap_2()
+        .child(
+            h_flex().child(
+                Button::new("hotkey")
+                    .outline()
+                    .selected(waiting)
+                    .label(label)
+                    .on_click(|_, window, cx| record_hotkey(window, cx)),
+            ),
+        )
+        .child(hint)
+}
+
+/// The teams subscribed to, and whether they're checked for changes by themselves.
+fn teams(cx: &mut App) -> Div {
+    let muted = cx.theme().muted_foreground;
+    let settings = current(cx);
+    let subscribed = cx
+        .try_global::<crate::gateway::Running>()
+        .map(|running| patchbay_core::subscription::Subscriptions::read(running.gateway.home()));
+    let rows = match subscribed {
+        Some(Ok(subscriptions)) if subscriptions.teams.is_empty() => vec![
+            div()
+                .text_sm()
+                .text_color(muted)
+                .child(t!("You haven't subscribed to a team.").into_owned())
+                .into_any_element(),
+        ],
+        Some(Ok(subscriptions)) => subscriptions
+            .teams
+            .into_iter()
+            .map(|(folder, team)| {
+                let commit: String = team.commit.chars().take(7).collect();
+                let followed = match &team.branch {
+                    Some(branch) => t!("%{branch}, at %{commit}", branch = branch, commit = commit),
+                    None => t!("At %{commit}", commit = commit),
+                };
+                v_flex()
+                    .min_w_0()
+                    .child(div().text_sm().child(folder))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .truncate()
+                            .child(format!("{} · {followed}", team.url)),
+                    )
+                    .into_any_element()
+            })
+            .collect(),
+        Some(Err(error)) => vec![
+            div()
+                .text_sm()
+                .text_color(cx.theme().danger)
+                .child(
+                    t!(
+                        "Couldn't read your teams: %{error}",
+                        error = error.to_string()
+                    )
+                    .into_owned(),
+                )
+                .into_any_element(),
+        ],
+        None => Vec::new(),
+    };
+    v_flex()
+        .p_4()
+        .gap_6()
+        .child(part(
+            t!("Changes"),
+            v_flex()
+                .gap_2()
+                .child(
+                    Switch::new("check-teams")
+                        .label(t!("Check teams for changes when Patchbay opens, and every hour").into_owned())
+                        .checked(settings.check_teams)
+                        .on_click(|on, _, cx| set_check_teams(*on, cx)),
+                )
+                .child(
+                    h_flex().child(
+                        Button::new("check-teams-now")
+                            .outline()
+                            .label(t!("Check Now").into_owned())
+                            .on_click(|_, _, cx| crate::view::run_in_front("teams.check", cx)),
+                    ),
+                )
+                .child(div().text_sm().text_color(muted).child(
+                    t!("Nothing a team changes reaches you until you've reviewed it, above your servers.")
+                        .into_owned(),
+                )),
+        ))
+        .child(part(
+            t!("Subscribed"),
+            v_flex()
+                .gap_3()
+                .children(rows)
+                .child(
+                    h_flex().child(
+                        Button::new("subscribe")
+                            .outline()
+                            .label(t!("Subscribe to a Team…").into_owned())
+                            .on_click(|_, _, cx| crate::view::run_in_front("teams.subscribe", cx)),
+                    ),
                 ),
         ))
 }
@@ -530,6 +775,42 @@ mod tests {
             set_appearance(Appearance::Light, cx);
             assert!(!cx.theme().mode.is_dark());
         });
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[gpui_kit::test]
+    fn the_menu_bar_shortcut_takes_the_keys_pressed_after_its_button_and_escape_leaves_it(
+        cx: &mut TestAppContext,
+    ) {
+        use super::{Recording, SettingsWindow, record_hotkey};
+        use gpui_kit::AppContext as _;
+        let path = scratch("hotkey");
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            theme::init(cx);
+            init_at(Some(path.clone()), cx);
+        });
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| SettingsWindow::new(window, cx));
+            gpui_kit::base::Root::new(view, window, cx)
+        });
+        let waiting = |cx: &mut gpui_kit::VisualTestContext| {
+            cx.update(|_, cx| cx.global::<Recording>().waiting)
+        };
+        cx.update(record_hotkey);
+        cx.simulate_keystrokes("ctrl-alt-cmd-k");
+        cx.update(|_, cx| assert_eq!(current(cx).hotkey, "ctrl+alt+super+KeyK"));
+        assert_eq!(Settings::load(&path).hotkey, "ctrl+alt+super+KeyK");
+        assert!(!waiting(cx));
+
+        // A key with no modifier is refused, and it waits on until Escape, which leaves the shortcut as it was.
+        cx.update(record_hotkey);
+        cx.simulate_keystrokes("k");
+        assert!(waiting(cx));
+        assert!(cx.update(|_, cx| cx.global::<Recording>().refused.is_some()));
+        cx.simulate_keystrokes("escape");
+        assert!(!waiting(cx));
+        cx.update(|_, cx| assert_eq!(current(cx).hotkey, "ctrl+alt+super+KeyK"));
         let _ = std::fs::remove_file(&path);
     }
 

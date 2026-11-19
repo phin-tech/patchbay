@@ -1,5 +1,5 @@
-//! Where the main window was, put back at the next launch, unless the display it was on has gone. Kept in
-//! `state.toml` beside the settings, and written when the app quits.
+//! Where the main window was, put back at the next launch, unless the display it was on has gone, and whether
+//! Welcome has been shown. Kept in `state.toml` beside the settings, and written when the app quits.
 
 use std::path::PathBuf;
 
@@ -31,6 +31,36 @@ pub fn init(cx: &mut App) {
         async {}
     })
     .detach();
+}
+
+/// Whether Welcome has been shown, or wasn't needed.
+pub fn welcomed(cx: &App) -> bool {
+    cx.try_global::<Remembered>()
+        .is_some_and(|remembered| remembered.state.welcomed)
+}
+
+/// Notes that Welcome has been shown, so it isn't again: saved at once, so a launch that doesn't quit cleanly still
+/// remembers it.
+pub fn set_welcomed(cx: &mut App) {
+    if !cx.has_global::<Remembered>() {
+        return;
+    }
+    let remembered = cx.global_mut::<Remembered>();
+    remembered.state.welcomed = true;
+    if let Some(path) = &remembered.path
+        && let Err(error) = remembered.state.save(path)
+    {
+        tracing::warn!("state not saved to {}: {error}", path.display());
+    }
+}
+
+/// For tests: nothing remembered, kept nowhere.
+#[cfg(test)]
+pub fn in_memory(cx: &mut App) {
+    cx.set_global(Remembered {
+        state: State::default(),
+        path: None,
+    });
 }
 
 /// Where to put the first window: where it was, if that can still be reached.

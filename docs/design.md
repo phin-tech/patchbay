@@ -252,8 +252,17 @@ Built with Typecase's parts and the shared look (`typecase::shell`, 0.29):
   - Teams: in the Servers place for now: Subscribe to a Team… in its menu, and each team's pending changes above
     the list, reviewed in place of the chosen server.
 - **Secret and sign-in sheets** as above, using `typecase-keychain`.
-- **Command palette** (⌘K), **toasts** ("Connected Cursor · Undo"), **Settings** (port, open at login, agents'
-  skills folders), **Welcome** at first launch: detect clients, subscribe to a team, connect.
+- **Command palette** (⌘K), which lists the menus, so every button in a panel has a Command in one: the Servers
+  menu does to the chosen server what its panel's buttons do.
+- **Toasts** ("Connected Cursor · Undo").
+- **Settings**: open at login, the Dock, the menu bar shortcut (changed at once, without a restart), the patch bay,
+  text size, agents' skills folders, whether teams are checked every hour, and updates.
+- **Welcome**, Typecase's, as Red Pen's and Corkboard's: once at a first launch with no client connected, so nobody
+  updating sees it, and again from Help or Settings. What Patchbay is, Import, Add Server and Subscribe to a Team,
+  the clients found and which are connected, the keys worth knowing first, and the menu bar and Open at login.
+- **The tour**, Typecase's, from Welcome, Help or Settings: the places, the patch bay, the servers and the one chosen,
+  the filter, teams, clients, skills and the gateway's URL. Unlike Red Pen's and Corkboard's it shows your own
+  servers, not made-up ones: each step goes on with Next and takes no clicks, so it changes nothing.
 - **Driver** for shots and agent checks, as Typecase has it.
 
 ## Milestones

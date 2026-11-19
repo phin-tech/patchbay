@@ -6,7 +6,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 use typecase::theme::Appearance;
 
-use crate::{about, logging, settings, view};
+use crate::{about, logging, settings, view, welcome};
 use rust_i18n::t;
 
 /// Every Command, by name. Menus and shortcuts name these, and a test holds them to this list.
@@ -21,6 +21,8 @@ pub const COMMANDS: &[&str] = &[
     "app.quit",
     "app.settings",
     "app.show-all",
+    "app.tour",
+    "app.welcome",
     "clients.connect",
     "clients.disconnect",
     "clients.layout-compact",
@@ -32,11 +34,19 @@ pub const COMMANDS: &[&str] = &[
     "gateway.copy-url",
     "servers.add",
     "servers.add-team",
+    "servers.change",
+    "servers.change-key",
     "servers.edit",
     "servers.export",
     "servers.import",
     "servers.reload",
+    "servers.remove",
     "servers.remove-team",
+    "servers.restart",
+    "servers.sign-in",
+    "servers.sign-out",
+    "servers.turn-off",
+    "servers.turn-on",
     "skills.add",
     "skills.check",
     "skills.remove",
@@ -82,6 +92,9 @@ pub fn run(name: &str, window: &mut Window, cx: &mut App) -> bool {
             }
         }
         "app.logs" => logging::reveal(cx),
+        "app.welcome" => welcome::open(cx),
+        // From a window with no tour of its own, the tour runs in a main window.
+        "app.tour" => view::run_in_front("app.tour", cx),
         "app.settings" => settings::open(cx),
         "app.hide" => cx.hide(),
         "app.hide-others" => cx.hide_other_apps(),

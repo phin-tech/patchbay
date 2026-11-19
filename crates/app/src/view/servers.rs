@@ -5,6 +5,19 @@ use patchbay_core::manifest::edit;
 
 use super::*;
 
+/// What can be done to the chosen server from the menus, as its panel's buttons do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ServerAction {
+    Edit,
+    Restart,
+    Remove,
+    TurnOn,
+    TurnOff,
+    SignIn,
+    SignOut,
+    ChangeKey,
+}
+
 impl MainView {
     /// A secret field for each secret a server is waiting for, or is having replaced; none for the rest.
     pub(super) fn sync_secret_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -83,6 +96,103 @@ impl MainView {
             }
             Err(error) => Toast::error(t!("Couldn't change your servers: %{error}", error = error))
                 .show(window, cx),
+        }
+    }
+
+    /// Does to the chosen server what a button in its panel does, from a menu or the palette. Says why not when it
+    /// can't, as the panel would have no button for it.
+    pub(super) fn act_on_chosen_server(
+        &mut self,
+        action: ServerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(server) = self
+            .server
+            .as_ref()
+            .and_then(|name| self.servers.iter().find(|server| &server.name == name))
+            .cloned()
+        else {
+            Toast::new(t!("Choose a server first"))
+                .key("server-action")
+                .show(window, cx);
+            return;
+        };
+        let name = server.name.clone();
+        let refuse = |said: std::borrow::Cow<str>, window: &mut Window, cx: &mut Context<Self>| {
+            Toast::new(said).key("server-action").show(window, cx);
+        };
+        let running = matches!(server.status, Status::Running);
+        match action {
+            ServerAction::Edit if server.team.is_some() => refuse(
+                t!(
+                    "%{server} is the team's, so it's changed in the team's repository",
+                    server = name
+                ),
+                window,
+                cx,
+            ),
+            ServerAction::Edit => self.start_editing(Editing::Server(name), window, cx),
+            ServerAction::Restart
+                if !matches!(server.status, Status::Running | Status::Failed { .. }) =>
+            {
+                refuse(t!("%{server} isn't running", server = name), window, cx);
+            }
+            ServerAction::Restart => {
+                self.restart(&name, cx);
+                Toast::new(t!("Restarting %{server}", server = name))
+                    .key("server-action")
+                    .show(window, cx);
+            }
+            ServerAction::Remove => self.remove_server(&name, window, cx),
+            ServerAction::TurnOn | ServerAction::TurnOff => {
+                let on = action == ServerAction::TurnOn;
+                if on == !matches!(server.status, Status::Off) {
+                    let said = if on {
+                        t!("%{server} is on already", server = name)
+                    } else {
+                        t!("%{server} is off already", server = name)
+                    };
+                    refuse(said, window, cx);
+                } else {
+                    self.set_enabled(&name, on, window, cx);
+                }
+            }
+            ServerAction::SignIn if matches!(server.status, Status::NeedsSignIn) => {
+                if !self.signing_in.contains(&name) {
+                    self.sign_in(&name, window, cx);
+                }
+            }
+            ServerAction::SignIn if server.oauth && running => {
+                refuse(
+                    t!("Signed in to %{server} already", server = name),
+                    window,
+                    cx,
+                );
+            }
+            ServerAction::SignOut if server.oauth && running => self.sign_out(&name, cx),
+            ServerAction::SignIn | ServerAction::SignOut => {
+                refuse(t!("%{server} has no sign-in", server = name), window, cx);
+            }
+            ServerAction::ChangeKey
+                if server.secrets.is_empty()
+                    || matches!(server.status, Status::NeedsSecret { .. }) =>
+            {
+                let said = if server.secrets.is_empty() {
+                    t!("%{server} has no keys", server = name)
+                } else {
+                    t!(
+                        "%{server} is waiting for its key: give it in its panel",
+                        server = name
+                    )
+                };
+                self.place = Place::Servers;
+                refuse(said, window, cx);
+            }
+            ServerAction::ChangeKey => {
+                self.place = Place::Servers;
+                self.toggle_replacing(&name, window, cx);
+            }
         }
     }
 
