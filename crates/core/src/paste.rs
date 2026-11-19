@@ -67,7 +67,7 @@ pub fn read(text: &str) -> Result<Vec<Pasted>, PasteError> {
     from_command(text)
 }
 
-fn from_toml(text: &str) -> Result<Vec<Pasted>, PasteError> {
+pub(crate) fn from_toml(text: &str) -> Result<Vec<Pasted>, PasteError> {
     let manifest =
         Manifest::from_toml(text).map_err(|error| PasteError::Broken(error.to_string()))?;
     if manifest.servers.is_empty() {
@@ -98,7 +98,7 @@ fn from_toml(text: &str) -> Result<Vec<Pasted>, PasteError> {
 }
 
 /// The secrets a server's values name.
-fn references(spec: &ServerSpec) -> Vec<String> {
+pub fn references(spec: &ServerSpec) -> Vec<String> {
     let values = spec
         .args
         .iter()

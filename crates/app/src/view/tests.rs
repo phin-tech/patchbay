@@ -157,6 +157,7 @@ fn every_command_runs_and_can_be_reached(_: &mut TestAppContext) {
         include_str!("servers.rs"),
         include_str!("clients.rs"),
         include_str!("editor.rs"),
+        include_str!("share.rs"),
         include_str!("../commands.rs"),
     ]
     .concat();
@@ -345,4 +346,94 @@ fn a_client_given_only_some_servers_gets_a_profile_of_its_own(cx: &mut TestAppCo
     let (manifest, profile) = read(cx);
     assert!(!manifest.contains("profiles"), "{manifest}");
     assert_eq!(profile, "default");
+}
+
+#[gpui_kit::test]
+fn an_export_holds_only_the_servers_left_ticked_and_none_of_their_keys(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, &format!("{GITHUB}\n\n"));
+    let text = view.update_in(cx, |view, window, cx| {
+        view.start_export(window, cx);
+        view.toggle_exported("fetch", cx);
+        view.exported(cx).unwrap().0
+    });
+    assert!(text.contains("[servers.github]"), "{text}");
+    assert!(text.contains("[secrets.github-token]"), "{text}");
+    assert!(!text.contains("fetch"), "{text}");
+}
+
+#[gpui_kit::test]
+fn a_pasted_team_is_kept_as_its_own_layer_and_not_in_your_manifest(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, "# Only mine, a little longer.\n");
+    let team = "# Ours.\n[team]\nname = \"Phin Tech\"\n\n[servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\nauth = \"oauth\"\n";
+    view.update_in(cx, |view, window, cx| {
+        view.start_editing(Editing::Team, window, cx);
+        view.fill_paste(team, window, cx);
+        assert_eq!(
+            view.editor.as_ref().unwrap().read.as_ref().map(Vec::len),
+            Ok(1)
+        );
+        view.save_editor(window, cx);
+        assert!(view.editor.is_none());
+    });
+    let (mine, theirs) = cx.update(|_, cx| {
+        let home = cx.global::<gateway::Running>().gateway.home().clone();
+        (
+            std::fs::read_to_string(home.manifest()).unwrap(),
+            std::fs::read_to_string(home.teams().join("phin-tech/patchbay.toml")).unwrap(),
+        )
+    });
+    assert!(!mine.contains("sentry"), "{mine}");
+    assert!(theirs.starts_with("# Ours."), "{theirs}");
+}
+
+#[gpui_kit::test]
+fn a_team_cant_take_a_name_your_own_keys_are_kept_under(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, "# Only mine, and longer again.\n");
+    view.update_in(cx, |view, window, cx| {
+        view.start_editing(Editing::Team, window, cx);
+        view.fill_paste(
+            "[team]\nname = \"me\"\n\n[servers.x]\nurl = \"https://x.example/mcp\"\n",
+            window,
+            cx,
+        );
+        assert!(view.editor.as_ref().unwrap().read.is_err());
+    });
+}
+
+#[gpui_kit::test]
+fn a_server_is_turned_off_and_on_in_your_own_manifest(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, &format!("{GITHUB}\n\n\n"));
+    view.update_in(cx, |view, window, cx| {
+        view.set_enabled("fetch", false, window, cx)
+    });
+    assert!(manifest(cx).contains("enabled = false"), "{}", manifest(cx));
+    view.update_in(cx, |view, window, cx| {
+        view.set_enabled("fetch", true, window, cx)
+    });
+    assert_eq!(manifest(cx), format!("{GITHUB}\n\n\n"));
+}
+
+#[gpui_kit::test]
+fn removing_a_team_takes_its_folder_out_and_leaves_your_servers(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, "# Mine, before a team is removed.\n");
+    let team =
+        "[team]\nname = \"Phin Tech\"\n\n[servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\n";
+    view.update_in(cx, |view, window, cx| {
+        view.start_editing(Editing::Team, window, cx);
+        view.fill_paste(team, window, cx);
+        view.save_editor(window, cx);
+        cx.global::<gateway::Running>().reload_now();
+        view.sync(window, cx);
+        view.choose_server("sentry", cx);
+        view.remove_chosen_team(window, cx);
+    });
+    let (folder, mine) = cx.update(|_, cx| {
+        let home = cx.global::<gateway::Running>().gateway.home().clone();
+        (
+            home.teams().join("phin-tech").exists(),
+            std::fs::read_to_string(home.manifest()).unwrap(),
+        )
+    });
+    assert!(!folder);
+    assert_eq!(mine, "# Mine, before a team is removed.\n");
 }

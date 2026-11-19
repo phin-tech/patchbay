@@ -14,6 +14,7 @@ pub mod paste;
 pub mod path;
 pub mod secrets;
 mod settings;
+pub mod share;
 mod state;
 
 pub use files::write_atomically;

@@ -87,6 +87,9 @@ pub fn menus() -> Vec<Menu> {
             t!("Servers"),
             vec![
                 run(t!("Add Server…"), "servers.add"),
+                run(t!("Add Team…"), "servers.add-team"),
+                run(t!("Export Servers…"), "servers.export"),
+                run(t!("Remove Team"), "servers.remove-team"),
                 run(t!("Reload Servers"), "servers.reload"),
                 run(t!("Edit patchbay.toml…"), "servers.edit"),
                 MenuItem::separator(),

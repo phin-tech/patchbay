@@ -141,6 +141,12 @@ pub fn init_with(home: Home, secrets: Secrets, cx: &mut App) {
 }
 
 impl Running {
+    /// Reads the manifests again before returning, for a test, where nothing runs on the gateway's threads.
+    #[cfg(test)]
+    pub fn reload_now(&self) {
+        self.runtime.block_on(self.gateway.reload());
+    }
+
     /// The default profile's URL, as clients reach it.
     pub fn url(&self) -> Option<String> {
         self.listening

@@ -37,6 +37,7 @@ impl MainView {
     pub(super) fn choose_server(&mut self, name: &str, cx: &mut Context<Self>) {
         self.server = Some(name.to_string());
         self.editor = None;
+        self.exporting = None;
         cx.notify();
     }
 
@@ -142,6 +143,7 @@ impl MainView {
                                     ),
                             )
                             .child(status_badge(&server.status, true))
+                            .child(self.enabled_switch(server, cx))
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.choose_server(&name, cx)),
                             )
@@ -153,6 +155,9 @@ impl MainView {
     pub(super) fn server_detail(&self, cx: &Context<Self>) -> AnyElement {
         if let Some(editor) = &self.editor {
             return self.editor_panel(editor, cx);
+        }
+        if let Some(exporting) = &self.exporting {
+            return self.export_panel(exporting, cx);
         }
         let Some(server) = self
             .server
@@ -215,20 +220,23 @@ impl MainView {
                     )
                 },
             )
-            .child(
-                button(
-                    "remove-server",
-                    if mine {
-                        t!("Remove").into_owned()
-                    } else {
-                        t!("Turn Off").into_owned()
-                    },
+            // A team's server is turned off with the switch in its row; only your own can be taken out, or the whole
+            // team.
+            .when(!mine, |row| {
+                row.child(
+                    button("remove-team", t!("Remove Team").into_owned()).on_click(
+                        cx.listener(|this, _, window, cx| this.remove_chosen_team(window, cx)),
+                    ),
                 )
-                .on_click(cx.listener({
-                    let name = name.clone();
-                    move |this, _, window, cx| this.remove_server(&name, window, cx)
-                })),
-            );
+            })
+            .when(mine, |row| {
+                row.child(
+                    button("remove-server", t!("Remove").into_owned()).on_click(cx.listener({
+                        let name = name.clone();
+                        move |this, _, window, cx| this.remove_server(&name, window, cx)
+                    })),
+                )
+            });
         let signing_in = self.signing_in.contains(&name);
         let secrets = shown_secrets(server, &self.replacing);
         let replacing = self.replacing.contains(&name);

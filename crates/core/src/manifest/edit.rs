@@ -96,6 +96,24 @@ pub fn set_enabled(text: &str, name: &str, enabled: bool) -> Result<String, Mani
     Ok(doc.to_string())
 }
 
+/// The manifest `text` without what it said only to turn the servers `names` off: once a team that had them is gone,
+/// such a table would be a server with nothing to run. One that says more is the person's own and stays.
+pub fn forget_switches(text: &str, names: &[String]) -> Result<String, ManifestError> {
+    let mut doc = document(text)?;
+    if let Some(servers) = doc.get_mut("servers").and_then(Item::as_table_mut) {
+        for name in names {
+            let only_a_switch = servers
+                .get(name)
+                .and_then(Item::as_table)
+                .is_some_and(|table| table.iter().all(|(key, _)| key == "enabled"));
+            if only_a_switch {
+                servers.remove(name);
+            }
+        }
+    }
+    Ok(doc.to_string())
+}
+
 /// The manifest `text` with the profile `name` gathering `servers`, in place of any it had.
 pub fn set_profile(text: &str, name: &str, servers: &[String]) -> Result<String, ManifestError> {
     let mut doc = document(text)?;

@@ -35,6 +35,7 @@ use clients::Given;
 mod editor;
 mod form;
 mod servers;
+mod share;
 
 pub use editor::Editing;
 use editor::Editor;
@@ -126,6 +127,8 @@ pub struct MainView {
     pub client: Option<Client>,
     /// A server being added or changed, shown in place of the chosen one.
     pub editor: Option<Editor>,
+    /// Servers being chosen to export, shown in place of the chosen one.
+    pub exporting: Option<share::Exporting>,
     /// The manifests' profiles, `default` first.
     profiles: Vec<String>,
     /// Each profile's servers.
@@ -176,6 +179,7 @@ impl MainView {
             server: None,
             client: None,
             editor: None,
+            exporting: None,
             profiles: Vec::new(),
             profile_servers: BTreeMap::new(),
             problems: Vec::new(),
@@ -226,6 +230,9 @@ impl MainView {
     fn run(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         match name {
             "servers.add" => self.start_editing(Editing::New, window, cx),
+            "servers.add-team" => self.start_editing(Editing::Team, window, cx),
+            "servers.export" => self.start_export(window, cx),
+            "servers.remove-team" => self.remove_chosen_team(window, cx),
             "servers.reload" => self.reload(window, cx),
             "servers.edit" => edit_manifest(cx),
             "gateway.copy-url" => self.copy_url(window, cx),
