@@ -132,6 +132,13 @@ how much.
   `[skills] install` are installed, from its `sources` (`.` is the team's own repository). A person's own layer
   turns either kind on or off. A dropped server takes the person's switch for it with it. A dropped skill stays,
   and a skill of the person's own is never replaced.
+- **A LiteLLM proxy** can be subscribed to as a team, with the person's own LiteLLM key. Its
+  `GET /v1/mcp/server` lists the servers that key can use, even for a key that isn't an admin's. Patchbay writes a
+  manifest from the list, one remote server per entry at LiteLLM's `/<name>/mcp`, with the key in
+  `x-litellm-api-key` and `tool_prefix` set to LiteLLM's `<name>-`, which the gateway takes off the tools' names. It
+  writes only URLs, never a command, so nothing LiteLLM lists runs on the Mac. A LiteLLM has no commits, so the lock
+  keeps `kind = "litellm"` and a SHA-256 of the written manifest as its commit, and a check asks LiteLLM again, with
+  curl, which reads the key from its standard input. Everything else (pending, review, accept) is a team's.
 - **Not yet**: `patchbay://subscribe` links, which a web page could open, so they'd only ever open the subscribe
   panel.
 - **Publishing** is a git push to the team repo. `patchbay export <server>` writes a server from your layer as team

@@ -57,6 +57,7 @@ pub const COMMANDS: &[&str] = &[
     "teams.check",
     "teams.review",
     "teams.subscribe",
+    "teams.subscribe-litellm",
     "view.actual-text",
     "view.bigger-text",
     "view.clients",

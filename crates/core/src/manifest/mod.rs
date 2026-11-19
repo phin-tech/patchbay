@@ -81,6 +81,11 @@ pub struct ServerSpec {
     /// The prefix of its tools' names; the server's own name if not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// A prefix the server already puts on its own tools' names (LiteLLM's `Clock_MCP-`), which Patchbay takes off,
+    /// so they don't carry two. It's a key of its own, not one of `tools`, because a person's switches replace a
+    /// server's whole `tools` table and would lose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_prefix: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolsSpec>,
 }

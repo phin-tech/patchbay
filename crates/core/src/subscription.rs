@@ -9,6 +9,9 @@
 //! A team decides what's on and what's only offered: a server it writes `enabled = false` for is in the catalog but
 //! off until the person turns it on in their own layer, and of the skills its sources hold, only those it names in
 //! `install` are installed.
+//!
+//! A team can also be a LiteLLM proxy's MCP servers ([`litellm`]): the manifest is written from what LiteLLM lists
+//! for the person's key, and the version accepted is its hash, but it's looked at and accepted the same way.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -18,21 +21,46 @@ use serde::{Deserialize, Serialize};
 use crate::Home;
 use crate::clients::Client;
 use crate::manifest::{Manifest, edit};
+use crate::secrets::Secrets;
 use crate::share::{self, TeamError};
 use crate::skills::{self, Folders, Kind, Preview, SkillsError, Source, Stamp, fetch};
 
 /// The file at the top of a team's repository that is its manifest.
 pub const MANIFEST: &str = "patchbay.toml";
 
+pub mod litellm;
+
+/// Where a team's manifest comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Origin {
+    /// A `patchbay.toml` at the top of a git repository.
+    #[default]
+    Git,
+    /// Written from a LiteLLM proxy's MCP servers.
+    #[serde(rename = "litellm")]
+    LiteLlm,
+}
+
+impl Origin {
+    fn is_git(&self) -> bool {
+        *self == Origin::Git
+    }
+}
+
 /// A team's repository, and the commit of it last accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Subscription {
-    /// What git clones.
+    /// Left out for a git repository, so locks from before LiteLLM read the same.
+    #[serde(default, skip_serializing_if = "Origin::is_git")]
+    pub kind: Origin,
+    /// What git clones, or the LiteLLM proxy.
     pub url: String,
     /// The branch or tag followed; the default branch if none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// The commit, or for LiteLLM the version ([`litellm::version`]) of the manifest written.
     pub commit: String,
     /// When that commit was accepted.
     pub accepted: String,
@@ -80,8 +108,10 @@ pub struct Pending {
     pub folder: String,
     /// The team's name, as its manifest gives it, or its folder.
     pub name: String,
+    pub origin: Origin,
     pub url: String,
     pub branch: Option<String>,
+    /// The commit, or LiteLLM's version.
     pub commit: String,
     /// The commit accepted before this one; none for a new subscription.
     pub since: Option<String>,
@@ -199,6 +229,7 @@ pub fn subscribe(home: &Home, url: &str, asked: Asked) -> Result<Pending, TeamEr
             .or(team_name)
             .unwrap_or_else(|| folder.clone()),
         folder,
+        origin: Origin::Git,
         url: source.url,
         branch: follow,
         commit,
@@ -211,13 +242,24 @@ pub fn subscribe(home: &Home, url: &str, asked: Asked) -> Result<Pending, TeamEr
 /// What the team kept under `folder` has changed since it was last accepted, or none if nothing has. Asks the remote
 /// for its commit first, so a team that hasn't moved costs no clone. A new commit that changes nothing in the
 /// manifest but its comments is taken in at once: there's nothing in it to look at.
-pub fn check(home: &Home, folder: &str) -> Result<Option<Pending>, TeamError> {
+pub fn check(
+    home: &Home,
+    secrets: &dyn Secrets,
+    folder: &str,
+) -> Result<Option<Pending>, TeamError> {
     let mut subscriptions = Subscriptions::read(home)?;
     let subscription = subscriptions
         .teams
         .get(folder)
         .cloned()
         .ok_or_else(|| TeamError::NoTeam(folder.to_string()))?;
+    if subscription.kind == Origin::LiteLlm {
+        let pending = litellm_pending(home, secrets, folder, &subscription)?;
+        if pending.commit == subscription.commit {
+            return Ok(None);
+        }
+        return settle(home, &mut subscriptions, pending);
+    }
     let head = fetch::remote_head(&subscription.url, subscription.branch.as_deref())
         .map_err(|error| fetch_error(&subscription.url, &error))?;
     if head == subscription.commit {
@@ -234,11 +276,21 @@ pub fn check(home: &Home, folder: &str) -> Result<Option<Pending>, TeamError> {
     if pending.commit == subscription.commit {
         return Ok(None);
     }
+    settle(home, &mut subscriptions, pending)
+}
+
+/// A team's new commit or version, waiting to be looked at, or taken in at once if nothing in it changes what the
+/// manifest says.
+fn settle(
+    home: &Home,
+    subscriptions: &mut Subscriptions,
+    pending: Pending,
+) -> Result<Option<Pending>, TeamError> {
     if !pending.changes.is_empty() {
         return Ok(Some(pending));
     }
-    write_manifest(home, folder, &pending.text)?;
-    if let Some(kept) = subscriptions.teams.get_mut(folder) {
+    write_manifest(home, &pending.folder, &pending.text)?;
+    if let Some(kept) = subscriptions.teams.get_mut(&pending.folder) {
         kept.commit = pending.commit;
         kept.accepted = Stamp::now().as_str().to_string();
     }
@@ -248,12 +300,25 @@ pub fn check(home: &Home, folder: &str) -> Result<Option<Pending>, TeamError> {
 
 /// What the team kept under `folder` would change at exactly `commit`, which a person has already looked at: the
 /// command line shows a check's changes and takes the commit back to accept, so nothing newer slips in between.
-pub fn at_commit(home: &Home, folder: &str, commit: &str) -> Result<Pending, TeamError> {
+pub fn at_commit(
+    home: &Home,
+    secrets: &dyn Secrets,
+    folder: &str,
+    commit: &str,
+) -> Result<Pending, TeamError> {
     let subscriptions = Subscriptions::read(home)?;
     let subscription = subscriptions
         .teams
         .get(folder)
         .ok_or_else(|| TeamError::NoTeam(folder.to_string()))?;
+    if subscription.kind == Origin::LiteLlm {
+        // LiteLLM keeps no versions to go back to: what it lists now has to be what was looked at.
+        let pending = litellm_pending(home, secrets, folder, subscription)?;
+        if pending.commit != commit {
+            return Err(TeamError::NotTheVersion(commit.to_string()));
+        }
+        return Ok(pending);
+    }
     let source = Source {
         kind: Kind::Git,
         url: subscription.url.clone(),
@@ -322,6 +387,7 @@ pub fn accept(home: &Home, pending: &Pending) -> Result<Accepted, TeamError> {
     subscriptions.teams.insert(
         pending.folder.clone(),
         Subscription {
+            kind: pending.origin,
             url: pending.url.clone(),
             branch: pending.branch.clone(),
             commit: pending.commit.clone(),
@@ -682,11 +748,99 @@ fn pending_from(
             .team
             .as_ref()
             .map_or_else(|| folder.to_string(), |team| team.name.clone()),
+        origin: Origin::Git,
         url: subscription.url.clone(),
         branch: source.reference.clone(),
         commit,
         since: Some(subscription.commit.clone()),
         changes: changes(&before, &manifest),
+        text,
+    })
+}
+
+/// What subscribing to the LiteLLM proxy at `url` with `key` would add: a manifest written from the servers it
+/// lists, not yet kept. The key isn't kept either; whoever accepts keeps it at [`litellm::account`], where the
+/// manifest's servers look for it. `asked.at` is a version already looked at; `asked.branch` means nothing here.
+pub fn subscribe_litellm(
+    home: &Home,
+    url: &str,
+    key: &str,
+    asked: Asked,
+) -> Result<Pending, TeamError> {
+    let url = litellm::base_url(url)?;
+    let subscriptions = Subscriptions::read(home)?;
+    if let Some((folder, _)) = subscriptions
+        .teams
+        .iter()
+        .find(|(_, subscription)| subscription.url == url)
+    {
+        return Err(TeamError::Subscribed(folder.clone()));
+    }
+    let given = asked.name.map(str::trim).filter(|name| !name.is_empty());
+    let name = given.unwrap_or("LiteLLM").to_string();
+    let folder = share::folder(&name)?;
+    if home.teams().join(&folder).exists() || subscriptions.teams.contains_key(&folder) {
+        return Err(TeamError::Taken(folder));
+    }
+    let text = litellm::manifest(&url, &name, &litellm::list(&url, key)?)?;
+    let manifest =
+        Manifest::from_toml(&text).map_err(|error| TeamError::Broken(error.to_string()))?;
+    if manifest.servers.is_empty() {
+        return Err(TeamError::NoneListed(url));
+    }
+    let commit = litellm::version(&text);
+    if let Some(at) = asked.at
+        && at != commit
+    {
+        return Err(TeamError::NotTheVersion(at.to_string()));
+    }
+    Ok(Pending {
+        folder,
+        name,
+        origin: Origin::LiteLlm,
+        url,
+        branch: None,
+        commit,
+        since: None,
+        changes: changes(&Manifest::default(), &manifest),
+        text,
+    })
+}
+
+/// What LiteLLM lists now for the team kept under `folder`, with the key kept for it, as a change to it. The team
+/// keeps the name it was given, so the same servers write the same manifest.
+fn litellm_pending(
+    home: &Home,
+    secrets: &dyn Secrets,
+    folder: &str,
+    subscription: &Subscription,
+) -> Result<Pending, TeamError> {
+    let key = secrets
+        .get(&litellm::account(folder))
+        .ok_or(TeamError::NoKey)?;
+    let before = std::fs::read_to_string(share::manifest_path(home, folder))
+        .ok()
+        .and_then(|text| Manifest::from_toml(&text).ok())
+        .unwrap_or_default();
+    let name = before
+        .team
+        .as_ref()
+        .map_or_else(|| folder.to_string(), |team| team.name.clone());
+    let text = litellm::manifest(
+        &subscription.url,
+        &name,
+        &litellm::list(&subscription.url, &key)?,
+    )?;
+    let after = Manifest::from_toml(&text).map_err(|error| TeamError::Broken(error.to_string()))?;
+    Ok(Pending {
+        folder: folder.to_string(),
+        name,
+        origin: Origin::LiteLlm,
+        url: subscription.url.clone(),
+        branch: None,
+        commit: litellm::version(&text),
+        since: Some(subscription.commit.clone()),
+        changes: changes(&before, &after),
         text,
     })
 }

@@ -65,6 +65,11 @@ check:
     cargo clippy -p patchbay --all-targets --features screenshot -- -D warnings
     cargo test --workspace
 
+# The LiteLLM sync against a real LiteLLM in Docker (crates/gateway/tests/litellm), which `just check` and CI leave out
+litellm-test:
+    docker compose -f crates/gateway/tests/litellm/compose.yaml up -d --wait
+    trap 'docker compose -f crates/gateway/tests/litellm/compose.yaml down -v' EXIT; cargo test -p patchbay-gateway --test litellm -- --ignored
+
 # Run the CI in .ci.star on this machine, against what's committed (needs starci)
 ci:
     starci run . --bare

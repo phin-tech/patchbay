@@ -229,7 +229,7 @@ impl Gateway {
         let Some(peer) = read(&slot.peer).clone() else {
             return Ok(text_error(format!("{} isn't running", slot.server.name)));
         };
-        request.name = Cow::Owned(tool);
+        request.name = Cow::Owned(slot.downstream_name(&tool));
         match peer.call_tool_once(request).await {
             Ok(response) => Ok(response),
             Err(error) => {

@@ -921,7 +921,7 @@ fn a_teams_changes_wait_in_the_window_until_theyre_accepted(cx: &mut TestAppCont
         view.run("teams.review", window, cx);
         assert_eq!(view.teams.reviewing.as_deref(), Some("phin-tech"));
         let pending = view.teams.updates["phin-tech"].clone();
-        view.accept_team(pending, window, cx);
+        view.accept_team(pending, None, window, cx);
     });
     cx.run_until_parked();
     assert_eq!(std::fs::read_to_string(&kept).unwrap(), changed);

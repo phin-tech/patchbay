@@ -1,0 +1,11 @@
+# LiteLLM for the sync's integration test (just litellm-test). The master key is only ever this test's.
+model_list: []
+general_settings:
+  master_key: sk-patchbay-test-master
+mcp_servers:
+  Clock_MCP:
+    transport: stdio
+    command: python
+    args: ["/srv/clock.py"]
+    description: A clock for tests
+    allow_all_keys: true

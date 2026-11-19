@@ -1,14 +1,17 @@
 //! Teams kept from a git repository: subscribing by its URL, checking each one in the background, and showing what a
 //! team changed for the person to accept, in place of the chosen server. Nothing fetched reaches the gateway until it's
-//! accepted, and accepting takes the commit that was shown.
+//! accepted, and accepting takes the commit that was shown. A LiteLLM proxy's servers are subscribed to the same way,
+//! with the person's key in place of a branch.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use patchbay_core::Home;
+use patchbay_core::secrets::Secrets;
 use patchbay_core::share::TeamError;
 use patchbay_core::skills::Stamp;
 use patchbay_core::subscription::{
-    self, Accepted, Asked, Change, How, Part, Pending, Subscriptions, TeamSkills,
+    self, Accepted, Asked, Change, How, Origin, Part, Pending, Subscriptions, TeamSkills, litellm,
 };
 
 use super::*;
@@ -29,10 +32,13 @@ pub struct TeamsState {
     _work: Option<Task<()>>,
 }
 
-/// A team's repository being subscribed to, in place of the chosen server.
+/// A team's repository, or a LiteLLM proxy, being subscribed to, in place of the chosen server.
 pub struct Subscribing {
+    /// Whether it's a LiteLLM proxy, which takes a key where a repository takes a branch.
+    litellm: bool,
     url: Entity<InputState>,
     branch: Entity<InputState>,
+    key: Entity<InputState>,
     name: Entity<InputState>,
     pub state: Fetch,
     _changed: Vec<Subscription>,
@@ -49,18 +55,36 @@ pub enum Fetch {
 
 impl MainView {
     /// Shows fields for a team's repository in place of the chosen server.
-    pub(super) fn start_subscribing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn start_subscribing(
+        &mut self,
+        litellm: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let field = |placeholder: String, window: &mut Window, cx: &mut Context<Self>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
         };
-        let url = field(
-            t!("A git URL, or owner/repo on GitHub").into_owned(),
-            window,
-            cx,
-        );
+        let url = if litellm {
+            field(t!("https://litellm.example.com").into_owned(), window, cx)
+        } else {
+            field(
+                t!("A git URL, or owner/repo on GitHub").into_owned(),
+                window,
+                cx,
+            )
+        };
         let branch = field(t!("The default branch").into_owned(), window, cx);
-        let name = field(t!("The name in its [team]").into_owned(), window, cx);
-        let changed = [&url, &branch, &name]
+        let key = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder(t!("Your LiteLLM key, sk-…").into_owned())
+        });
+        let name = if litellm {
+            field(t!("LiteLLM").into_owned(), window, cx)
+        } else {
+            field(t!("The name in its [team]").into_owned(), window, cx)
+        };
+        let changed = [&url, &branch, &key, &name]
             .into_iter()
             .map(|field| {
                 cx.subscribe_in(field, window, |this, _, event: &InputEvent, window, cx| {
@@ -87,8 +111,10 @@ impl MainView {
         self.teams.reviewing = None;
         self.place = Place::Servers;
         self.teams.subscribing = Some(Subscribing {
+            litellm,
             url,
             branch,
+            key,
             name,
             state: Fetch::Typing,
             _changed: changed,
@@ -109,22 +135,28 @@ impl MainView {
             return;
         };
         let value = |field: &Entity<InputState>| field.read(cx).value().trim().to_string();
-        let (url, branch, name) = (
+        let (url, branch, key, name) = (
             value(&subscribing.url),
             value(&subscribing.branch),
+            value(&subscribing.key),
             value(&subscribing.name),
         );
         if url.is_empty() || matches!(subscribing.state, Fetch::Fetching) {
             return;
         }
         subscribing.state = Fetch::Fetching;
+        let litellm = subscribing.litellm;
         let fetching = cx.background_spawn(async move {
             let asked = Asked {
                 branch: Some(branch.as_str()).filter(|branch| !branch.is_empty()),
                 name: Some(name.as_str()).filter(|name| !name.is_empty()),
                 at: None,
             };
-            subscription::subscribe(&home, &url, asked)
+            if litellm {
+                subscription::subscribe_litellm(&home, &url, &key, asked)
+            } else {
+                subscription::subscribe(&home, &url, asked)
+            }
         });
         subscribing._task = Some(cx.spawn_in(window, async move |this, cx| {
             let fetched = fetching.await;
@@ -165,10 +197,12 @@ impl MainView {
     /// Asks each team's repository whether it has moved on, off the window's thread, and keeps what changed to look
     /// at. `said` says how it went, for a check the person asked for.
     pub(super) fn check_teams(&mut self, said: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(home) = cx
-            .try_global::<Running>()
-            .map(|running| running.gateway.home().clone())
-        else {
+        let Some((home, secrets)) = cx.try_global::<Running>().map(|running| {
+            (
+                running.gateway.home().clone(),
+                Arc::clone(running.gateway.secrets()),
+            )
+        }) else {
             return;
         };
         if self.teams.busy {
@@ -178,7 +212,8 @@ impl MainView {
             return;
         }
         self.teams.busy = true;
-        let checking = cx.background_spawn(async move { check_every_team(&home) });
+        let checking =
+            cx.background_spawn(async move { check_every_team(&home, secrets.as_ref()) });
         self.teams._work = Some(cx.spawn_in(window, async move |this, cx| {
             let checked = checking.await;
             let _ = this.update_in(cx, |this, window, cx| {
@@ -254,17 +289,20 @@ impl MainView {
     }
 
     /// Takes in what was shown: a new team's manifest, or a team's changes, and then the skills it adds, off the
-    /// window's thread since those are fetched.
+    /// window's thread since those are fetched. A new LiteLLM's `key` is kept first, where its servers look for it.
     pub(super) fn accept_team(
         &mut self,
         pending: Pending,
+        key: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(home) = cx
-            .try_global::<Running>()
-            .map(|running| running.gateway.home().clone())
-        else {
+        let Some((home, secrets)) = cx.try_global::<Running>().map(|running| {
+            (
+                running.gateway.home().clone(),
+                Arc::clone(running.gateway.secrets()),
+            )
+        }) else {
             return;
         };
         if self.teams.busy {
@@ -274,6 +312,11 @@ impl MainView {
         self.teams.busy = true;
         let folders = skill_folders(cx);
         let accepting = cx.background_spawn(async move {
+            if let Some(key) = key.filter(|_| pending.origin == Origin::LiteLlm) {
+                secrets
+                    .set(&litellm::account(&pending.folder), &key)
+                    .map_err(|error| TeamError::Files(error.to_string()))?;
+            }
             let accepted = subscription::accept(&home, &pending)?;
             let skills = subscription::install_skills(&folders, &pending, &Stamp::now());
             Ok::<_, TeamError>((pending, accepted, skills))
@@ -362,7 +405,15 @@ impl MainView {
             Fetch::Found(pending) => Some((**pending).clone()),
             _ => None,
         };
-        let header = self.panel_header(t!("Subscribe to a Team"), cx).child(
+        let litellm = subscribing.litellm;
+        // The key as it was when LiteLLM was asked: typing another since sends the sheet back to Typing.
+        let key = litellm.then(|| subscribing.key.read(cx).value().trim().to_string());
+        let title = if litellm {
+            t!("Subscribe to LiteLLM")
+        } else {
+            t!("Subscribe to a Team")
+        };
+        let header = self.panel_header(title, cx).child(
             h_flex()
                 .gap_1()
                 .child(
@@ -380,18 +431,25 @@ impl MainView {
                         .label(t!("Subscribe").into_owned())
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if let Some(pending) = found.clone() {
-                                this.accept_team(pending, window, cx);
+                                this.accept_team(pending, key.clone(), window, cx);
                             }
                         })),
                 ),
         );
         let state = match &subscribing.state {
+            Fetch::Typing if litellm => hint(
+                t!(
+                    "Press Return to fetch its servers: the MCP servers your key can use there, each reached through LiteLLM."
+                ),
+                cx,
+            ),
             Fetch::Typing => hint(
                 t!(
                     "Press Return to fetch it. The repository has a patchbay.toml at its top, naming the team's servers, the secrets each needs and its skills."
                 ),
                 cx,
             ),
+            Fetch::Fetching if litellm => hint(t!("Asking LiteLLM for its servers…"), cx),
             Fetch::Fetching => hint(t!("Fetching the team…"), cx),
             Fetch::Failed(error) => div()
                 .text_base()
@@ -399,46 +457,59 @@ impl MainView {
                 .child(error.clone()),
             Fetch::Found(pending) => self.changes_list(pending, cx),
         };
-        let body = v_flex()
-            .gap_5()
-            .p_4()
-            .child(
-                section(t!("Repository"), cx).child(
-                    h_flex()
-                        .gap_2()
-                        .child(div().flex_1().child(small_field(&subscribing.url)))
-                        .child(
-                            Button::new("fetch-team")
-                                .xsmall()
-                                .disabled(matches!(subscribing.state, Fetch::Fetching))
-                                .label(t!("Fetch").into_owned())
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.fetch_team(window, cx)),
-                                ),
-                        ),
+        let (place, second, second_field, warning) = if litellm {
+            (
+                t!("LiteLLM"),
+                t!("Key"),
+                &subscribing.key,
+                t!(
+                    "These servers run where LiteLLM runs, which holds their own keys. Your LiteLLM key is kept in your Keychain, and Patchbay asks LiteLLM again for its servers as it checks teams."
                 ),
             )
-            .child(
-                h_flex()
-                    .gap_4()
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(section(t!("Branch"), cx).child(small_field(&subscribing.branch))),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(section(t!("Kept as"), cx).child(small_field(&subscribing.name))),
-                    ),
-            )
-            .child(section(t!("What subscribing adds"), cx).child(state))
-            .child(hint(
+        } else {
+            (
+                t!("Repository"),
+                t!("Branch"),
+                &subscribing.branch,
                 t!(
                     "A team's servers run on your Mac, so look at what each one runs. Its secrets are yours: Patchbay asks for each when its server starts and keeps it in your Keychain."
                 ),
-                cx,
-            ));
+            )
+        };
+        let body =
+            v_flex()
+                .gap_5()
+                .p_4()
+                .child(
+                    section(place, cx).child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().flex_1().child(small_field(&subscribing.url)))
+                            .child(
+                                Button::new("fetch-team")
+                                    .xsmall()
+                                    .disabled(matches!(subscribing.state, Fetch::Fetching))
+                                    .label(t!("Fetch").into_owned())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.fetch_team(window, cx)
+                                    })),
+                            ),
+                    ),
+                )
+                .child(
+                    h_flex()
+                        .gap_4()
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(section(second, cx).child(small_field(second_field))),
+                        )
+                        .child(div().flex_1().child(
+                            section(t!("Kept as"), cx).child(small_field(&subscribing.name)),
+                        )),
+                )
+                .child(section(t!("What subscribing adds"), cx).child(state))
+                .child(hint(warning, cx));
         v_flex()
             .size_full()
             .child(header)
@@ -478,7 +549,7 @@ impl MainView {
                             .disabled(self.teams.busy)
                             .label(t!("Accept").into_owned())
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.accept_team(accepting.clone(), window, cx);
+                                this.accept_team(accepting.clone(), None, window, cx);
                             })),
                     ),
             );
@@ -599,7 +670,7 @@ struct Checked {
     moved: bool,
 }
 
-fn check_every_team(home: &Home) -> Checked {
+fn check_every_team(home: &Home, secrets: &dyn Secrets) -> Checked {
     let before = Subscriptions::read(home).unwrap_or_default();
     let mut checked = Checked {
         teams: Vec::new(),
@@ -607,7 +678,7 @@ fn check_every_team(home: &Home) -> Checked {
         moved: false,
     };
     for folder in before.teams.keys() {
-        match subscription::check(home, folder) {
+        match subscription::check(home, secrets, folder) {
             Ok(found) => checked.teams.push((folder.clone(), found)),
             Err(error) => {
                 tracing::info!(team = %folder, %error, "team not checked");

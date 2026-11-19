@@ -74,6 +74,7 @@ pub fn init(cx: &mut App) {
         // Only for a capture of a team, since its servers and its changes would be in every other frame too.
         if std::env::var_os("PATCHBAY_SHOT_TEAM").is_some() {
             seed_team(&home);
+            seed_litellm(&home);
         }
         init_with(home, Secrets::Memory, cx);
         seed_skills(&stand_in);
@@ -164,6 +165,35 @@ fn seed_team(home: &Home) {
                 "[servers.notion]\nurl = \"https://mcp.notion.com/mcp\"\nauth = \"oauth\"\nenabled = false\n",
             ),
     );
+}
+
+/// Keeps a LiteLLM's servers in a capture's home as if it had been subscribed to, without asking any LiteLLM, so a
+/// frame of Settings shows one beside the team.
+fn seed_litellm(home: &Home) {
+    use patchbay_core::subscription::{Origin, Subscription, Subscriptions, litellm};
+
+    let base = "https://litellm.example.com";
+    let listed = r#"[{"server_name": "GitHub_MCP"}, {"server_name": "Jira_MCP"}]"#;
+    let Ok(text) = litellm::manifest(base, "LiteLLM", listed) else {
+        return;
+    };
+    let folder = home.teams().join("litellm");
+    let _ = std::fs::create_dir_all(&folder);
+    let _ = std::fs::write(folder.join("patchbay.toml"), &text);
+    let mut subscriptions = Subscriptions::read(home).unwrap_or_default();
+    subscriptions.teams.insert(
+        "litellm".to_string(),
+        Subscription {
+            kind: Origin::LiteLlm,
+            url: base.to_string(),
+            branch: None,
+            commit: litellm::version(&text),
+            accepted: "2026-11-19T12:00:00Z".to_string(),
+        },
+    );
+    if let Err(error) = subscriptions.write(home) {
+        tracing::warn!(%error, "no LiteLLM in the capture");
+    }
 }
 
 /// The team a capture subscribes to.

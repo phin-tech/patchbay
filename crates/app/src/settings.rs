@@ -4,9 +4,10 @@
 
 use std::path::{Path, PathBuf};
 
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, Selectable as _, StyledExt as _, button::Button,
-    button::ButtonVariants as _, h_flex, switch::Switch, v_flex,
+    ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, StyledExt as _,
+    button::Button, button::ButtonVariants as _, h_flex, switch::Switch, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -247,11 +248,14 @@ fn sections() -> Vec<Section> {
         Section::new(t!("General").into_owned(), |_, cx| general(cx)).keywords(["text", "size"]),
         Section::appearance(),
         Section::new(t!("Skills").into_owned(), |_, cx| skills(cx)).keywords(["folders", "agents"]),
-        Section::new(t!("Teams").into_owned(), |_, cx| teams(cx)).keywords([
+        Section::new(t!("Subscriptions").into_owned(), subscriptions).keywords([
+            "teams",
             "subscribe",
             "git",
             "repository",
             "check",
+            "litellm",
+            "key",
         ]),
         Section::new(t!("Updates").into_owned(), |_, cx| updates(cx)).keywords(["beta", "sparkle"]),
     ]
@@ -532,19 +536,22 @@ fn hotkey(cx: &mut App) -> Div {
         .child(hint)
 }
 
-/// The teams subscribed to, and whether they're checked for changes by themselves.
-fn teams(cx: &mut App) -> Div {
+/// Every subscription, a team's repository or a LiteLLM proxy, and whether they're checked for changes by themselves. A
+/// LiteLLM's key can be replaced here, since it's the one secret all its servers share.
+fn subscriptions(window: &mut Window, cx: &mut App) -> Div {
+    use patchbay_core::subscription::{Origin, Subscriptions};
+
     let muted = cx.theme().muted_foreground;
     let settings = current(cx);
     let subscribed = cx
         .try_global::<crate::gateway::Running>()
-        .map(|running| patchbay_core::subscription::Subscriptions::read(running.gateway.home()));
+        .map(|running| Subscriptions::read(running.gateway.home()));
     let rows = match subscribed {
         Some(Ok(subscriptions)) if subscriptions.teams.is_empty() => vec![
             div()
                 .text_sm()
                 .text_color(muted)
-                .child(t!("You haven't subscribed to a team.").into_owned())
+                .child(t!("You haven't subscribed to a team or a LiteLLM.").into_owned())
                 .into_any_element(),
         ],
         Some(Ok(subscriptions)) => subscriptions
@@ -552,21 +559,29 @@ fn teams(cx: &mut App) -> Div {
             .into_iter()
             .map(|(folder, team)| {
                 let commit: String = team.commit.chars().take(7).collect();
-                let followed = match &team.branch {
-                    Some(branch) => t!("%{branch}, at %{commit}", branch = branch, commit = commit),
-                    None => t!("At %{commit}", commit = commit),
+                let followed = match (&team.kind, &team.branch) {
+                    (Origin::LiteLlm, _) => t!("LiteLLM, at %{commit}", commit = commit),
+                    (Origin::Git, Some(branch)) => {
+                        t!("%{branch}, at %{commit}", branch = branch, commit = commit)
+                    }
+                    (Origin::Git, None) => t!("At %{commit}", commit = commit),
                 };
-                v_flex()
+                let row = v_flex()
                     .min_w_0()
-                    .child(div().text_sm().child(folder))
+                    .gap_1()
+                    .child(div().text_sm().child(folder.clone()))
                     .child(
                         div()
                             .text_sm()
                             .text_color(muted)
                             .truncate()
                             .child(format!("{} · {followed}", team.url)),
-                    )
-                    .into_any_element()
+                    );
+                match team.kind {
+                    Origin::LiteLlm => row.child(litellm_key(&folder, window, cx)),
+                    Origin::Git => row,
+                }
+                .into_any_element()
             })
             .collect(),
         Some(Err(error)) => vec![
@@ -575,7 +590,7 @@ fn teams(cx: &mut App) -> Div {
                 .text_color(cx.theme().danger)
                 .child(
                     t!(
-                        "Couldn't read your teams: %{error}",
+                        "Couldn't read your subscriptions: %{error}",
                         error = error.to_string()
                     )
                     .into_owned(),
@@ -593,7 +608,7 @@ fn teams(cx: &mut App) -> Div {
                 .gap_2()
                 .child(
                     Switch::new("check-teams")
-                        .label(t!("Check teams for changes when Patchbay opens, and every hour").into_owned())
+                        .label(t!("Check subscriptions for changes when Patchbay opens, and every hour").into_owned())
                         .checked(settings.check_teams)
                         .on_click(|on, _, cx| set_check_teams(*on, cx)),
                 )
@@ -606,24 +621,142 @@ fn teams(cx: &mut App) -> Div {
                     ),
                 )
                 .child(div().text_sm().text_color(muted).child(
-                    t!("Nothing a team changes reaches you until you've reviewed it, above your servers.")
+                    t!("Nothing a subscription changes reaches you until you've reviewed it, above your servers.")
                         .into_owned(),
                 )),
         ))
         .child(part(
             t!("Subscribed"),
             v_flex()
-                .gap_3()
+                .gap_4()
                 .children(rows)
                 .child(
-                    h_flex().child(
-                        Button::new("subscribe")
-                            .outline()
-                            .label(t!("Subscribe to a Team…").into_owned())
-                            .on_click(|_, _, cx| crate::view::run_in_front("teams.subscribe", cx)),
-                    ),
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("subscribe")
+                                .outline()
+                                .label(t!("Subscribe to a Team…").into_owned())
+                                .on_click(|_, _, cx| crate::view::run_in_front("teams.subscribe", cx)),
+                        )
+                        .child(
+                            Button::new("subscribe-litellm")
+                                .outline()
+                                .label(t!("Subscribe to LiteLLM…").into_owned())
+                                .on_click(|_, _, cx| {
+                                    crate::view::run_in_front("teams.subscribe-litellm", cx);
+                                }),
+                        ),
                 ),
         ))
+}
+
+/// A LiteLLM subscription's key field, kept while Settings shows it, and what saving it last said.
+struct KeyField {
+    input: Entity<InputState>,
+    said: Option<Result<String, String>>,
+    _enter: Subscription,
+}
+
+/// A field to replace the key of the LiteLLM kept under `folder`. The key isn't shown, or read from the Keychain to
+/// draw this: a new one replaces it.
+fn litellm_key(folder: &str, window: &mut Window, cx: &mut App) -> Div {
+    let account = patchbay_core::subscription::litellm::account(folder);
+    let field = window.use_keyed_state(
+        SharedString::from(format!("litellm-key-{folder}")),
+        cx,
+        |window, cx| {
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .placeholder(t!("Paste a new key to replace yours").into_owned())
+            });
+            let save = account.clone();
+            let enter = cx.subscribe_in(
+                &input,
+                window,
+                move |_, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { .. } = event {
+                        save_litellm_key(cx.entity(), save.clone(), window, cx);
+                    }
+                },
+            );
+            KeyField {
+                input,
+                said: None,
+                _enter: enter,
+            }
+        },
+    );
+    let theme = cx.theme();
+    let said = match &field.read(cx).said {
+        Some(Ok(said)) => Some(
+            div()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child(said.clone()),
+        ),
+        Some(Err(said)) => Some(div().text_sm().text_color(theme.danger).child(said.clone())),
+        None => None,
+    };
+    let saving = field.clone();
+    v_flex()
+        .gap_1()
+        .child(
+            h_flex()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(&field.read(cx).input).small().h(rems(24. / 13.))),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("save-key-{folder}")))
+                        .xsmall()
+                        .outline()
+                        .label(t!("Replace Key").into_owned())
+                        .on_click(move |_, window, cx| {
+                            save_litellm_key(saving.clone(), account.clone(), window, cx);
+                        }),
+                ),
+        )
+        .children(said)
+}
+
+/// Keeps what's typed in `field` as the key at `account`, through the gateway, which starts the LiteLLM's servers
+/// again with it, and empties the field.
+fn save_litellm_key(field: Entity<KeyField>, account: String, window: &mut Window, cx: &mut App) {
+    let input = field.read(cx).input.clone();
+    let key = input.read(cx).value().trim().to_string();
+    if key.is_empty() {
+        return;
+    }
+    let Some(running) = cx.try_global::<crate::gateway::Running>() else {
+        return;
+    };
+    let gateway = running.gateway.clone();
+    let saving = running.spawn(async move { gateway.set_secret(&account, &key).await });
+    window
+        .spawn(cx, async move |cx| {
+            let said = match saving.await {
+                Ok(Ok(())) => Ok(t!("Kept the new key in the Keychain").into_owned()),
+                Ok(Err(error)) => {
+                    Err(t!("Couldn't keep it: %{error}", error = format!("{error:#}")).into_owned())
+                }
+                Err(_) => return,
+            };
+            let _ = cx.update(|window, cx| {
+                if said.is_ok() {
+                    input.update(cx, |input, cx| input.set_value("", window, cx));
+                }
+                field.update(cx, |field, cx| {
+                    field.said = Some(said);
+                    cx.notify();
+                });
+                window.refresh();
+            });
+        })
+        .detach();
 }
 
 /// Each client's skills folder, which Patchbay links skills into, and a folder of the person's choosing in its place.

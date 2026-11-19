@@ -1,14 +1,19 @@
 //! `patchbay teams`: subscribing to a team's git repository, checking it for changes and accepting them. Nothing a
 //! team's repository says is kept until it's been shown, and accepting takes the commit that was shown, never a newer
-//! one.
+//! one. A LiteLLM proxy's MCP servers are kept the same way, by the version of what it lists.
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 
 use patchbay_core::Home;
+use patchbay_core::secrets::Secrets;
 use patchbay_core::skills::{Folders, Stamp};
 use patchbay_core::subscription::{
-    self, Asked, Pending, Subscriptions, TeamSkills, accept, at_commit, check, report, subscribe,
+    self, Asked, Origin, Pending, Subscriptions, TeamSkills, accept, at_commit, check, litellm,
+    report, subscribe, subscribe_litellm,
 };
+
+/// Where `teams litellm` reads the key from before it asks, so a script can give it.
+const KEY_VARIABLE: &str = "PATCHBAY_LITELLM_KEY";
 
 /// What `patchbay teams` was asked to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +22,11 @@ pub enum Teams {
     Add {
         url: String,
         branch: Option<String>,
+        name: Option<String>,
+        accept: Option<String>,
+    },
+    LiteLlm {
+        url: String,
         name: Option<String>,
         accept: Option<String>,
     },
@@ -31,6 +41,9 @@ pub const USAGE: &str = "  teams                     the teams you subscribe to,
   teams add <git-url> [--branch <name>] [--name <team>] [--accept <commit>]
                             subscribe to a team's repository (a patchbay.toml at its top): shows what
                             it adds, and keeps it with --accept and the commit shown
+  teams litellm <url> [--name <team>] [--accept <version>]
+                            keep a LiteLLM proxy's MCP servers as a team, with your key (asked for, or
+                            in PATCHBAY_LITELLM_KEY): shows them, and keeps them with --accept
   teams check [team…]       which teams' repositories have changed since you accepted them
   teams update <team> [--accept <commit>]
                             show what a team changed; --accept takes in that commit and its skills";
@@ -67,6 +80,28 @@ pub fn parse(args: &[&str]) -> Result<Teams, String> {
                 accept,
             })
         }
+        Some("litellm") => {
+            let mut rest = args[1..].iter();
+            let (mut url, mut name, mut accept) = (None, None, None);
+            while let Some(arg) = rest.next() {
+                let mut value = |what: &str| {
+                    rest.next()
+                        .map(|value| (*value).to_string())
+                        .ok_or_else(|| format!("{arg} needs {what}"))
+                };
+                match *arg {
+                    "--name" | "-n" => name = Some(value("a name")?),
+                    "--accept" => accept = Some(whole_commit(&value("the version shown")?)?),
+                    flag if flag.starts_with('-') => {
+                        return Err(format!("teams litellm doesn't take {flag}"));
+                    }
+                    given if url.is_none() => url = Some(given.to_string()),
+                    extra => return Err(format!("one LiteLLM at a time, not {extra} too")),
+                }
+            }
+            let url = url.ok_or("give the LiteLLM proxy's URL")?;
+            Ok(Teams::LiteLlm { url, name, accept })
+        }
         Some("check") => Ok(Teams::Check(
             args[1..].iter().map(|team| (*team).to_string()).collect(),
         )),
@@ -88,7 +123,13 @@ pub fn parse(args: &[&str]) -> Result<Teams, String> {
 impl Teams {
     /// Runs it over `home`, installing a team's skills into `folders`. Gives whether any team's layer changed, for
     /// the caller to have the gateway read them again.
-    pub fn run(self, home: &Home, folders: &Folders, out: &mut impl Write) -> anyhow::Result<bool> {
+    pub fn run(
+        self,
+        home: &Home,
+        folders: &Folders,
+        secrets: &dyn Secrets,
+        out: &mut impl Write,
+    ) -> anyhow::Result<bool> {
         match self {
             Teams::List => {
                 let kept = Subscriptions::read(home)?;
@@ -104,9 +145,13 @@ impl Teams {
                         .as_deref()
                         .map(|branch| format!(" ({branch})"))
                         .unwrap_or_default();
+                    let from = match team.kind {
+                        Origin::Git => "",
+                        Origin::LiteLlm => "LiteLLM ",
+                    };
                     writeln!(
                         out,
-                        "{folder:<20} {}{branch} at {}, accepted {}",
+                        "{folder:<20} {from}{}{branch} at {}, accepted {}",
                         team.url,
                         team.commit.get(..7).unwrap_or(&team.commit),
                         team.accepted
@@ -147,6 +192,45 @@ impl Teams {
                 take(home, folders, &pending, out)?;
                 Ok(true)
             }
+            Teams::LiteLlm { url, name, accept } => {
+                let key = match std::env::var(KEY_VARIABLE) {
+                    Ok(key) if !key.trim().is_empty() => key,
+                    _ => {
+                        writeln!(out, "Paste your LiteLLM key, then press Return:")?;
+                        out.flush()?;
+                        let mut line = String::new();
+                        std::io::stdin().lock().read_line(&mut line)?;
+                        line
+                    }
+                };
+                let key = key.trim().to_string();
+                let url = litellm::base_url(&url)?;
+                writeln!(out, "Asking {url} for its MCP servers…")?;
+                out.flush()?;
+                let asked = Asked {
+                    name: name.as_deref(),
+                    at: accept.as_deref(),
+                    ..Asked::default()
+                };
+                let pending = subscribe_litellm(home, &url, &key, asked)?;
+                write!(out, "{}", report(&pending))?;
+                if accept.is_none() {
+                    let mut again = format!("patchbay teams litellm {}", pending.url);
+                    if let Some(name) = &name {
+                        again.push_str(&format!(" --name '{name}'"));
+                    }
+                    writeln!(
+                        out,
+                        "These run where LiteLLM runs. To keep them, run:\n  {again} --accept {}",
+                        pending.commit
+                    )?;
+                    return Ok(false);
+                }
+                // Kept before the team, whose servers look for it as soon as the gateway reads them.
+                secrets.set(&litellm::account(&pending.folder), &key)?;
+                take(home, folders, &pending, out)?;
+                Ok(true)
+            }
             Teams::Check(teams) => {
                 let teams = if teams.is_empty() {
                     Subscriptions::read(home)?.teams.into_keys().collect()
@@ -155,7 +239,7 @@ impl Teams {
                 };
                 let mut changed = false;
                 for team in teams {
-                    match check(home, &team) {
+                    match check(home, secrets, &team) {
                         Ok(None) => writeln!(out, "{team}: up to date")?,
                         Ok(Some(pending)) => {
                             changed = true;
@@ -173,8 +257,8 @@ impl Teams {
             }
             Teams::Update { team, accept } => {
                 let pending = match &accept {
-                    Some(commit) => at_commit(home, &team, commit)?,
-                    None => match check(home, &team)? {
+                    Some(commit) => at_commit(home, secrets, &team, commit)?,
+                    None => match check(home, secrets, &team)? {
                         Some(pending) => pending,
                         None => {
                             writeln!(out, "{team} is up to date.")?;
@@ -244,9 +328,13 @@ fn take(
     for (name, why) in failed {
         writeln!(out, "Couldn't install {name}: {why}")?;
     }
+    // A LiteLLM's one secret is its key, kept already.
     let wanted = patchbay_core::manifest::Manifest::from_toml(&pending.text)
         .map(|manifest| manifest.secrets.into_keys().collect::<Vec<_>>())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|_| pending.origin == Origin::Git)
+        .collect::<Vec<_>>();
     if !wanted.is_empty() {
         writeln!(
             out,
@@ -258,13 +346,15 @@ fn take(
     Ok(())
 }
 
-/// `commit`, if it's the whole commit a report gave: anything shorter, or a branch, could be another commit.
+/// `commit`, if it's the whole commit a report gave, or the whole version of a LiteLLM's servers: anything shorter,
+/// or a branch, could be another commit.
 fn whole_commit(commit: &str) -> Result<String, String> {
-    if commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()) {
+    let hex = commit.chars().all(|c| c.is_ascii_hexdigit());
+    if hex && (commit.len() == 40 || litellm::is_version(commit)) {
         Ok(commit.to_string())
     } else {
         Err(format!(
-            "--accept takes the whole commit shown (40 characters), not {commit}"
+            "--accept takes the whole commit or version shown, not {commit}"
         ))
     }
 }
@@ -318,6 +408,25 @@ mod tests {
         );
         assert!(parse(&["add", "x/y", "--accept", "abc1234"]).is_err());
         assert_eq!(parse(&["check"]), Ok(Teams::Check(Vec::new())));
+        let version = "ab".repeat(32);
+        assert_eq!(
+            parse(&[
+                "litellm",
+                "https://ai.example.com",
+                "--name",
+                "AI",
+                "--accept",
+                &version
+            ]),
+            Ok(Teams::LiteLlm {
+                url: "https://ai.example.com".to_string(),
+                name: Some("AI".to_string()),
+                accept: Some(version.clone()),
+            })
+        );
+        assert!(parse(&["litellm"]).is_err());
+        assert!(parse(&["litellm", "https://a", "--accept", "abc"]).is_err());
+        assert!(parse(&["litellm", "https://a", "--branch", "main"]).is_err());
         assert!(parse(&["add"]).is_err());
         assert!(parse(&["add", "a", "b"]).is_err());
         assert!(parse(&["update"]).is_err());

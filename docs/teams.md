@@ -61,7 +61,7 @@ The same goes for skills from a private repository.
 
 ## Changes
 
-Patchbay checks each team when it opens and every hour after that, unless you turn that off in **Settings ▸ Teams**,
+Patchbay checks each team when it opens and every hour after that, unless you turn that off in **Settings ▸ Subscriptions**,
 which lists the teams you're subscribed to. **Check Teams for Changes** checks at once. A team
 with changes is listed above your servers. **Review** shows what changed: servers added, removed or changed, field by
 field, with the old and new value of each. Nothing changes until you choose **Accept**, which takes in exactly the
@@ -73,6 +73,43 @@ team's skills come through **Check for Skill Updates**, like any other skill.
 
 Removing a team (**Remove Team** on one of its servers) takes out its servers and its subscription. Its keys stay in
 your Keychain, so subscribing again doesn't ask for them.
+
+## A LiteLLM proxy
+
+If your organisation keeps its MCP servers in a [LiteLLM](https://docs.litellm.ai/docs/mcp) proxy, subscribe to that
+instead: **Subscribe to LiteLLM…** in the Servers menu. Give the proxy's URL (its `/ui` admin page's works too) and
+your LiteLLM key, the `sk-…` it gave you. Patchbay asks LiteLLM for the MCP servers your key can use and lists them
+before anything is kept, as it does a team's.
+
+Each server is reached through LiteLLM, at its own path, with your key:
+
+```toml
+[servers.github_mcp]
+url = "https://litellm.example.com/GitHub_MCP/mcp"
+headers = { x-litellm-api-key = "Bearer ${secret:litellm-key}" }
+tool_prefix = "GitHub_MCP-"
+```
+
+So the servers run where LiteLLM runs, never on your Mac, and LiteLLM keeps their own keys and decides what your key
+may use. LiteLLM puts each server's name before its tools' (`GitHub_MCP-search_issues`); Patchbay takes it off, so
+your AI tools see `github_mcp__search_issues`. Your LiteLLM key is kept in your Keychain, under the team's name
+(`litellm/litellm-key`).
+
+To replace your key, paste the new one under the LiteLLM in **Settings ▸ Subscriptions**, which lists it beside your
+teams, and choose **Replace Key**. Every one of its servers uses that key, so they all start again with it.
+
+Checking teams asks LiteLLM again. A server added, taken out or renamed there waits above your servers to be
+reviewed like any team's change, and nothing changes until you accept. Change the servers in LiteLLM, not in
+Patchbay's copy, which it writes again. A server waiting for an admin's approval in LiteLLM isn't listed until it's
+approved.
+
+```sh
+patchbay teams litellm https://litellm.example.com            # asks for your key, shows the servers
+patchbay teams litellm https://litellm.example.com --accept <version>   # keeps them
+```
+
+`PATCHBAY_LITELLM_KEY` gives the key without asking for it. `patchbay teams check` and `patchbay teams update`
+work for it as for any team, with the version shown in place of a commit.
 
 ## From a terminal
 

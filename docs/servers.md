@@ -41,6 +41,7 @@ server's tools reach your AI tools named after it: `fetch`'s `fetch` tool is `fe
 | `auth = "oauth"` | Sign in to it in the browser; Patchbay keeps and refreshes the token |
 | `enabled = false` | Keep it, but don't run it |
 | `namespace` | The prefix of its tools' names, if not the server's own name |
+| `tool_prefix` | A prefix the server already puts on its own tools' names, which Patchbay takes off (`tool_prefix = "github-"` makes `github-search` reach your AI tools as `github__search`) |
 | `tools.allow`, `tools.deny` | Which of its tools your AI tools see, by name; `*` matches anything (`deny = ["delete_*"]`) |
 
 ## Secrets

@@ -333,7 +333,8 @@ impl MainView {
         match name {
             "servers.add" => self.start_editing(Editing::New, window, cx),
             "servers.add-team" => self.start_editing(Editing::Team, window, cx),
-            "teams.subscribe" => self.start_subscribing(window, cx),
+            "teams.subscribe" => self.start_subscribing(false, window, cx),
+            "teams.subscribe-litellm" => self.start_subscribing(true, window, cx),
             "teams.check" => self.check_teams(true, window, cx),
             "teams.review" => self.review_teams(window, cx),
             "servers.export" => self.start_export(window, cx),

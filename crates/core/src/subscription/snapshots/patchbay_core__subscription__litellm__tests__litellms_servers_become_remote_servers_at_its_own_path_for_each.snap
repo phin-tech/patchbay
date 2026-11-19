@@ -1,0 +1,28 @@
+---
+source: crates/core/src/subscription/litellm.rs
+assertion_line: 243
+expression: text
+---
+# Written by Patchbay from the MCP servers LiteLLM at http://localhost:4000 lists for your key. Patchbay writes it again
+# when they change, so change them in LiteLLM.
+
+[team]
+name = "LiteLLM"
+
+[secrets.litellm-key]
+prompt = "Your LiteLLM key (sk-…)"
+help = "http://localhost:4000/ui"
+
+[servers.clock_mcp]
+url = "http://localhost:4000/Clock_MCP/mcp"
+tool_prefix = "Clock_MCP-"
+
+[servers.clock_mcp.headers]
+x-litellm-api-key = "Bearer ${secret:litellm-key}"
+
+[servers.echo_db]
+url = "http://localhost:4000/Echo_DB/mcp"
+tool_prefix = "Echo_DB-"
+
+[servers.echo_db.headers]
+x-litellm-api-key = "Bearer ${secret:litellm-key}"
