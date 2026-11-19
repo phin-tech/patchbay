@@ -88,7 +88,7 @@ install = ["pi-cold-review", "pi-handoff"]
 - **Transport** is implied: `command` is stdio, `url` is streamable HTTP. Old SSE servers get `transport = "sse"`.
 - **Secrets** are referenced in `env`, `headers` and `args` (`secret:x`, or `${secret:x}` inside a longer string).
 - **Layers**, lowest first: each subscribed team manifest, then your own
-  (`~/Library/Application Support/Patchbay/patchbay.toml`). Yours can add servers, change a team server's fields,
+  (`~/.config/patchbay/patchbay.toml`). Yours can add servers, change a team server's fields,
   turn one off (`[servers.github] enabled = false`), and define profiles.
 - **Secret scope.** A team secret named `github-token` is stored per team (`<team>/github-token`), so two teams with
   the same name don't collide. Your own are `me/<name>`.

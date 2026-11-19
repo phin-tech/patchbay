@@ -1,5 +1,5 @@
 //! The Settings window (⌘,) and the settings behind it, which `patchbay_core::Settings` keeps in
-//! `~/Library/Application Support/tech.phin.patchbay/settings.toml`. `PATCHBAY_SETTINGS` points somewhere else.
+//! `~/.config/patchbay/config.toml` (`patchbay_core::Home::settings`). `PATCHBAY_SETTINGS` points somewhere else.
 //! The window is Typecase's frame, a sidebar of sections; its Appearance section is Typecase's theme picker.
 
 use std::path::{Path, PathBuf};
@@ -28,9 +28,9 @@ struct Prefs {
 
 impl Global for Prefs {}
 
-/// A file the app keeps between runs, `name` in Application Support: `settings.toml`, `state.toml`. They go beside
-/// `PATCHBAY_SETTINGS` when that's set. Captures keep none otherwise, so a frame never depends on, or changes,
-/// what's kept.
+/// A file the app keeps between runs, `name` in Application Support: `state.toml`, `data.sqlite`; or
+/// `settings.toml`, the settings, which are in the config folder instead. They go beside `PATCHBAY_SETTINGS` when
+/// that's set. Captures keep none otherwise, so a frame never depends on, or changes, what's kept.
 pub fn file(name: &str) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("PATCHBAY_SETTINGS") {
         let path = PathBuf::from(path);
@@ -42,11 +42,11 @@ pub fn file(name: &str) -> Option<PathBuf> {
     if cfg!(feature = "screenshot") {
         return None;
     }
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    Some(
-        home.join("Library/Application Support/tech.phin.patchbay")
-            .join(name),
-    )
+    let home = patchbay_core::Home::from_env();
+    Some(match name {
+        "settings.toml" => home.settings(),
+        _ => home.root().join(name),
+    })
 }
 
 /// Reads the settings and shows the theme they choose. After `theme::init`, before any window opens.

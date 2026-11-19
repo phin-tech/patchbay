@@ -10,8 +10,8 @@ headless; `crates/app` is the GPUI front end. Read `CONTEXT.md` before naming an
   (`palette.rs`, ⌘K, Typecase's, shown over the main view) lists too. Tests hold every menu item and key to `COMMANDS`, and every Command to having a case in
   a `run` and a place in a menu or a key.
 - `settings.rs`: the Settings window (⌘,), Typecase's frame with a section for each part, over
-  `patchbay_core::Settings`, a TOML file in Application Support.
-  `restore.rs` puts the main window back where it was (`state.toml`, beside the settings).
+  `patchbay_core::Settings`, `~/.config/patchbay/config.toml`, beside the servers' `patchbay.toml`.
+  `restore.rs` puts the main window back where it was (`state.toml`, in Application Support).
 - `language.rs` and `locales/app.toml`: the language, and translations keyed by the English text.
 - `crates/core/src/database.rs`: SQLite, with migrations; `crates/app/src/database.rs` opens it.
 - `crates/core/src/skills/`: skills, installed into the store and lock the `skills` CLI (skills.sh) uses, so both

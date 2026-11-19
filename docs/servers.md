@@ -1,6 +1,6 @@
 # Your servers: patchbay.toml
 
-Patchbay's servers are in one file, `~/Library/Application Support/tech.phin.patchbay/patchbay.toml`. Add Server
+Patchbay's servers are in one file, `~/.config/patchbay/patchbay.toml` (or in `$XDG_CONFIG_HOME/patchbay`). Add Server
 (⌘N) writes it for you, and **Edit patchbay.toml…** in the Servers menu opens it. After changing it by hand, choose
 **Reload Servers** (⌘R).
 
