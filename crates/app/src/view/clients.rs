@@ -57,15 +57,21 @@ impl MainView {
     }
 
     pub(super) fn client_list(&self, cx: &Context<Self>) -> AnyElement {
+        let query = self.filter_text(Place::Clients, cx);
+        let shown = self
+            .clients
+            .iter()
+            .filter(|row| matches_filter(&query, &[row.client.name(), row.client.slug()]));
         v_flex()
             .size_full()
             .child(self.panel_header(t!("Clients"), cx))
+            .child(self.filter_field(Place::Clients, cx))
             .child(
                 div()
                     .id("client-list")
                     .flex_1()
                     .overflow_y_scroll()
-                    .child(v_flex().children(self.clients.iter().map(|row| {
+                    .child(v_flex().children(shown.map(|row| {
                         let client = row.client;
                         let given = self.given(row);
                         let gets = if row.choice.profile == "default" {

@@ -67,7 +67,9 @@ pub fn init(cx: &mut App) {
         // With one profile beside the default, so a capture shows a client's profile too.
         let manifest = format!("{STARTER}\n[profiles.issues]\nservers = [\"linear\"]\n");
         let _ = std::fs::write(home.manifest(), manifest);
+        let skills = home.root().join("client-home");
         init_with(home, Secrets::Memory, cx);
+        seed_skills(&skills);
         return;
     }
     let home = Home::from_env();
@@ -78,6 +80,34 @@ pub fn init(cx: &mut App) {
         }
     }
     init_with(home, Secrets::FromEnv, cx);
+}
+
+/// Puts two skills in a capture's stand-in home, so a frame of Skills shows what a row can be: one installed from a
+/// repository and linked into Claude Code, and one of the person's own in Cursor.
+fn seed_skills(home: &std::path::Path) {
+    let write = |folder: std::path::PathBuf, name: &str, description: &str| {
+        let _ = std::fs::create_dir_all(&folder);
+        let skill = format!("---\nname: {name}\ndescription: {description}\n---\n");
+        let _ = std::fs::write(folder.join("SKILL.md"), skill);
+    };
+    let store = home.join(".agents/skills");
+    write(
+        store.join("code-review"),
+        "code-review",
+        "Review the changes on a branch against the repository's own standards.",
+    );
+    write(
+        home.join(".cursor/skills/release-notes"),
+        "release-notes",
+        "Write release notes from the commits since the last tag.",
+    );
+    let _ = std::fs::create_dir_all(home.join(".claude/skills"));
+    let _ = std::os::unix::fs::symlink(
+        "../../.agents/skills/code-review",
+        home.join(".claude/skills/code-review"),
+    );
+    let lock = r#"{"version":3,"skills":{"code-review":{"source":"phin-tech/skills","sourceType":"github","sourceUrl":"https://github.com/phin-tech/skills.git","skillPath":"skills/code-review/SKILL.md","skillFolderHash":"","installedAt":"2026-11-19T10:00:00.000Z","updatedAt":"2026-11-19T10:00:00.000Z"}},"dismissed":{}}"#;
+    let _ = std::fs::write(home.join(".agents/.skill-lock.json"), lock);
 }
 
 /// Starts a gateway over `home`'s manifests. Only one with the real secrets listens on the usual port and starts

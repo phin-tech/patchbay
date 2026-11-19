@@ -1,0 +1,17 @@
+---
+source: crates/cli/src/skills.rs
+assertion_line: 255
+expression: said
+---
+Fetching <repo>…
+<repo> has 2 skills:
+  plan                     Helps with plan
+  review                   Helps with review
+Choose with --skill <name>, or --skill '*' for every one.
+Fetching <repo>…
+Installed review in ~/.agents/skills/review, for Claude Code, Cursor.
+Installed plan in ~/.agents/skills/plan, for Claude Code, Cursor.
+  plan                         <repo> claude-code, codex, cursor, pi
+  review                       <repo> claude-code, codex, cursor, pi
+Every skill is up to date.
+Removed plan.

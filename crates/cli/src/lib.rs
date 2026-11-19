@@ -14,6 +14,8 @@ use patchbay_core::secrets::Secrets;
 use patchbay_core::{Home, version};
 use patchbay_gateway::{Gateway, GatewayFile, View, client_entries, gateway_token, oauth};
 
+mod skills;
+
 /// What a command line asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -49,6 +51,8 @@ pub enum Command {
         client: Client,
     },
     Clients,
+    /// `skills add`, `list`, `remove`, `check` and `update`, as `npx skills` takes them.
+    Skills(skills::Skills),
     /// A command it knows, said wrongly.
     Wrong(String),
 }
@@ -64,6 +68,7 @@ const USAGE: &str = "usage: patchbay <command>
                             point a client at the gateway: one entry (every server's tools under its
                             name), an entry for each server, or three tools that find and call the rest
   disconnect <client>       take Patchbay's entries out of a client
+{SKILLS}
   serve                     run the gateway without the app
   bridge [route]            the gateway over stdio, for a client to run: default, server/<name>,
                             <profile>, <profile>/compact
@@ -71,6 +76,11 @@ const USAGE: &str = "usage: patchbay <command>
 
 With no arguments, opens Patchbay. Your servers are in
 ~/Library/Application Support/tech.phin.patchbay/patchbay.toml (PATCHBAY_HOME moves it).";
+
+/// The usage, with the skills commands in their place.
+fn usage() -> String {
+    USAGE.replace("{SKILLS}", skills::USAGE)
+}
 
 /// The command `args` (without the program's name) ask for, or none, to open the app.
 pub fn parse<S: AsRef<str>>(args: &[S]) -> Option<Command> {
@@ -102,6 +112,7 @@ pub fn parse<S: AsRef<str>>(args: &[S]) -> Option<Command> {
         "sign-out" => named(1, "server").map(|server| Command::SignOut { server }),
         "connect" => client(1).and_then(|client| connect_options(client, &args[2..])),
         "disconnect" => client(1).map(|client| Command::Disconnect { client }),
+        "skills" => skills::parse(&args[1..]).map(Command::Skills),
         _ => return None,
     };
     Some(command.unwrap_or_else(Command::Wrong))
@@ -146,10 +157,19 @@ impl Command {
     pub fn run(self, out: &mut impl Write) -> io::Result<i32> {
         match self {
             Command::Version => writeln!(out, "patchbay {}", version())?,
-            Command::Help => writeln!(out, "{USAGE}")?,
+            Command::Help => writeln!(out, "{}", usage())?,
             Command::Wrong(reason) => {
-                writeln!(out, "patchbay: {reason}\n\n{USAGE}")?;
+                writeln!(out, "patchbay: {reason}\n\n{}", usage())?;
                 return Ok(2);
+            }
+            // Skills need no gateway or Keychain, so they run here, without the runtime.
+            Command::Skills(command) => {
+                let folders = patchbay_core::skills::Folders::from_env(user_home());
+                let cwd = std::env::current_dir()?;
+                if let Err(error) = command.run(&folders, &cwd, out) {
+                    writeln!(out, "patchbay: {error:#}")?;
+                    return Ok(1);
+                }
             }
             command => {
                 let runtime = tokio::runtime::Runtime::new()?;
@@ -348,7 +368,7 @@ impl Command {
                     path.display()
                 )?;
             }
-            Command::Version | Command::Help | Command::Wrong(_) => {}
+            Command::Version | Command::Help | Command::Wrong(_) | Command::Skills(_) => {}
         }
         Ok(())
     }

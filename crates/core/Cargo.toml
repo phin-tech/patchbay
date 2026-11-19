@@ -20,6 +20,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 toml_edit = "0.25"
 # SQLite compiled in, so the app needs nothing from the system's.
 rusqlite = { version = "0.41", features = ["bundled"] }
+# The `skills` CLI's folder hash, so a skill either tool installed can be checked by the other.
+sha2 = "0.10"
 
 [dev-dependencies]
 insta.workspace = true

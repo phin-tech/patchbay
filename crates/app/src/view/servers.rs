@@ -89,6 +89,13 @@ impl MainView {
             self.editor.as_ref().map(|editor| &editor.mode),
             Some(Editing::New)
         );
+        let query = self.filter_text(Place::Servers, cx);
+        let shown: Vec<&ServerStatus> = self
+            .servers
+            .iter()
+            .filter(|server| matches_filter(&query, &[&server.name, &server.target]))
+            .collect();
+        let nothing_matches = shown.is_empty() && !self.servers.is_empty();
         v_flex()
             .size_full()
             .child(
@@ -118,12 +125,16 @@ impl MainView {
                         })),
                 )
             })
+            .child(self.filter_field(Place::Servers, cx))
             .child(
                 div()
                     .id("server-list")
                     .flex_1()
                     .overflow_y_scroll()
-                    .child(v_flex().children(self.servers.iter().map(|server| {
+                    .when(nothing_matches, |this| {
+                        this.child(div().p_3().child(hint(t!("No servers match."), cx)))
+                    })
+                    .child(v_flex().children(shown.into_iter().map(|server| {
                         let name = server.name.clone();
                         let chosen =
                             !adding && self.server.as_deref() == Some(server.name.as_str());
