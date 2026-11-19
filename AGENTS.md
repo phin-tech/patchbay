@@ -51,6 +51,8 @@ foreground.
   `PATCHBAY_KEYS="cmd-, wait"` shows Settings and `cmd-k` the palette. Keys and clicks reach only the main window,
   so `PATCHBAY_SETTINGS_SECTION=Skills` opens Settings on a section by its name.
 - The frame is at 2x: divide its pixel coordinates by two for `click:`.
+- `PATCHBAY_SHOT_TEAM=1` subscribes the shot to a team in a repository beside it, then changes the team, so its
+  changes wait above the servers.
 - Shots read and write no settings, so yours are safe. `PATCHBAY_SETTINGS=<file>` gives them some, and
   `PATCHBAY_WIDTH` sets the main window's width.
 - Hidden frames don't show a selection highlight.

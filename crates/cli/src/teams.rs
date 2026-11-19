@@ -51,7 +51,7 @@ pub fn parse(args: &[&str]) -> Result<Teams, String> {
                 match *arg {
                     "--branch" | "-b" => branch = Some(value("a branch")?),
                     "--name" | "-n" => name = Some(value("a name")?),
-                    "--accept" => accept = Some(value("the commit shown")?),
+                    "--accept" => accept = Some(whole_commit(&value("the commit shown")?)?),
                     flag if flag.starts_with('-') => {
                         return Err(format!("teams add doesn't take {flag}"));
                     }
@@ -73,7 +73,7 @@ pub fn parse(args: &[&str]) -> Result<Teams, String> {
         Some("update") => {
             let team = args.get(1).ok_or("name the team to update")?.to_string();
             let accept = match args.get(2..) {
-                Some(["--accept", commit]) => Some((*commit).to_string()),
+                Some(["--accept", commit]) => Some(whole_commit(commit)?),
                 Some([]) | None => None,
                 Some(_) => {
                     return Err("teams update takes a team and --accept <commit>".to_string());
@@ -258,6 +258,17 @@ fn take(
     Ok(())
 }
 
+/// `commit`, if it's the whole commit a report gave: anything shorter, or a branch, could be another commit.
+fn whole_commit(commit: &str) -> Result<String, String> {
+    if commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(commit.to_string())
+    } else {
+        Err(format!(
+            "--accept takes the whole commit shown (40 characters), not {commit}"
+        ))
+    }
+}
+
 fn count(changes: usize) -> String {
     if changes == 1 {
         "1 change".to_string()
@@ -280,22 +291,32 @@ mod tests {
                 "--branch",
                 "main",
                 "--accept",
-                "abc1234"
+                "0123456789abcdef0123456789abcdef01234567"
             ]),
             Ok(Teams::Add {
                 url: "git@git.phin.tech:phin-tech/team.git".to_string(),
                 branch: Some("main".to_string()),
                 name: None,
-                accept: Some("abc1234".to_string()),
+                accept: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
             })
         );
         assert_eq!(
-            parse(&["update", "phin-tech", "--accept", "abc1234"]),
+            parse(&[
+                "update",
+                "phin-tech",
+                "--accept",
+                "0123456789abcdef0123456789abcdef01234567"
+            ]),
             Ok(Teams::Update {
                 team: "phin-tech".to_string(),
-                accept: Some("abc1234".to_string()),
+                accept: Some("0123456789abcdef0123456789abcdef01234567".to_string()),
             })
         );
+        assert!(
+            parse(&["update", "phin-tech", "--accept", "main"]).is_err(),
+            "a branch could be anywhere by the time it's fetched"
+        );
+        assert!(parse(&["add", "x/y", "--accept", "abc1234"]).is_err());
         assert_eq!(parse(&["check"]), Ok(Teams::Check(Vec::new())));
         assert!(parse(&["add"]).is_err());
         assert!(parse(&["add", "a", "b"]).is_err());

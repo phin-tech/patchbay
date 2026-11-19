@@ -44,6 +44,8 @@ pub enum TeamError {
         "{0} needs you signed in. Patchbay's git never asks, so clone it once in a terminal to save your sign-in, or use an SSH URL with a key ssh-agent holds"
     )]
     Denied(String),
+    #[error("“{0}” isn't the whole commit that was shown; accept with the 40 characters it gave")]
+    NotTheCommit(String),
     /// What git said, which already says what it couldn't fetch.
     #[error("{0}")]
     Fetch(String),

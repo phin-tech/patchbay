@@ -173,9 +173,14 @@ pub fn subscribe(home: &Home, url: &str, asked: Asked) -> Result<Pending, TeamEr
         return Err(TeamError::Subscribed(folder.clone()));
     }
     if let Some(at) = at {
-        source.reference = Some(at.to_string());
+        source.reference = Some(full_commit(at)?);
     }
     let (commit, text, manifest) = fetch_manifest(&source)?;
+    if let Some(at) = at
+        && commit != at
+    {
+        return Err(TeamError::NotTheCommit(at.to_string()));
+    }
     let given = name.map(str::trim).filter(|name| !name.is_empty());
     let team_name = manifest.team.as_ref().map(|team| team.name.clone());
     let folder = share::folder(
@@ -252,11 +257,14 @@ pub fn at_commit(home: &Home, folder: &str, commit: &str) -> Result<Pending, Tea
     let source = Source {
         kind: Kind::Git,
         url: subscription.url.clone(),
-        reference: Some(commit.to_string()),
+        reference: Some(full_commit(commit)?),
         subpath: None,
         skill: None,
     };
     let mut pending = pending_from(home, folder, subscription, &source)?;
+    if pending.commit != commit {
+        return Err(TeamError::NotTheCommit(commit.to_string()));
+    }
     pending.branch.clone_from(&subscription.branch);
     Ok(pending)
 }
@@ -591,6 +599,17 @@ fn quoted(text: &str) -> String {
     toml::Value::String(text.to_string()).to_string()
 }
 
+/// `commit`, if it's a whole commit as git names one: a branch or a short commit could be cloned as something else
+/// than the commit that was looked at.
+fn full_commit(commit: &str) -> Result<String, TeamError> {
+    let whole = commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit());
+    if whole {
+        Ok(commit.to_ascii_lowercase())
+    } else {
+        Err(TeamError::NotTheCommit(commit.to_string()))
+    }
+}
+
 fn short(commit: &str) -> &str {
     commit.get(..7).unwrap_or(commit)
 }
@@ -698,16 +717,7 @@ fn skill_source(written: &str, pending: &Pending) -> Result<Source, String> {
 fn fetch_error(url: &str, error: &SkillsError) -> TeamError {
     let said = error.to_string();
     let lower = said.to_lowercase();
-    let denied = [
-        "authentication",
-        "could not read username",
-        "permission denied",
-        "terminal prompts disabled",
-        "repository not found",
-        "access denied",
-    ]
-    .iter()
-    .any(|word| lower.contains(word));
+    let denied = fetch::DENIED.iter().any(|word| lower.contains(word));
     if denied {
         TeamError::Denied(url.to_string())
     } else {

@@ -71,7 +71,10 @@ pub fn init(cx: &mut App) {
         let manifest = format!("{STARTER}\n[profiles.issues]\nservers = [\"linear\"]\n");
         let _ = std::fs::write(home.manifest(), manifest);
         let stand_in = home.root().join("client-home");
-        seed_team(&home);
+        // Only for a capture of a team, since its servers and its changes would be in every other frame too.
+        if std::env::var_os("PATCHBAY_SHOT_TEAM").is_some() {
+            seed_team(&home);
+        }
         init_with(home, Secrets::Memory, cx);
         seed_skills(&stand_in);
         seed_servers(&stand_in);

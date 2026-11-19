@@ -183,6 +183,36 @@ fn output(command: &mut Command, url: &str) -> Result<String, SkillsError> {
 
 static OUTPUTS: AtomicUsize = AtomicUsize::new(0);
 
+/// What git says when a repository wants a sign-in it wasn't given, or doesn't let this one in, in any case.
+pub(crate) const DENIED: [&str; 6] = [
+    "authentication",
+    "could not read username",
+    "permission denied",
+    "terminal prompts disabled",
+    "repository not found",
+    "access denied",
+];
+
+/// The line of git's complaint worth showing: the one saying it was refused, if it says so, since an SSH refusal
+/// ends with advice ("and the repository exists."); otherwise its last `fatal:`, or its last line.
+pub(crate) fn telling_line(said: &str) -> &str {
+    let lines: Vec<&str> = said
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines
+        .iter()
+        .find(|line| {
+            let lower = line.to_lowercase();
+            DENIED.iter().any(|word| lower.contains(word))
+        })
+        .or_else(|| lines.iter().rev().find(|line| line.starts_with("fatal:")))
+        .or_else(|| lines.last())
+        .copied()
+        .unwrap_or("git failed")
+}
+
 /// Runs a git command to its end, or stops it after [`CLONE_TIMEOUT`].
 fn run(command: &mut Command, url: &str) -> Result<(), SkillsError> {
     run_with(command.stdout(Stdio::null()), url)
@@ -203,13 +233,10 @@ fn run_with(command: &mut Command, url: &str) -> Result<(), SkillsError> {
                 if let Some(mut stderr) = child.stderr.take() {
                     let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
                 }
-                let said = said
-                    .trim()
-                    .lines()
-                    .last()
-                    .unwrap_or("git failed")
-                    .to_string();
-                return Err(SkillsError::Fetch(format!("{url}: {said}")));
+                return Err(SkillsError::Fetch(format!(
+                    "{url}: {}",
+                    telling_line(&said)
+                )));
             }
             Ok(None) if started.elapsed() > CLONE_TIMEOUT => {
                 let _ = child.kill();
@@ -221,5 +248,24 @@ fn run_with(command: &mut Command, url: &str) -> Result<(), SkillsError> {
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(error) => return Err(SkillsError::Fetch(error.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::telling_line;
+
+    #[test]
+    fn a_refused_ssh_clone_says_it_was_refused_not_the_advice_after() {
+        let said = "git@github.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n";
+        assert_eq!(
+            telling_line(said),
+            "git@github.com: Permission denied (publickey)."
+        );
+        assert_eq!(
+            telling_line("Cloning into 'x'...\nfatal: repository 'x' does not exist\n"),
+            "fatal: repository 'x' does not exist"
+        );
+        assert_eq!(telling_line(""), "git failed");
     }
 }

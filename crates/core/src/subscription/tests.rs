@@ -301,6 +301,34 @@ fn subscribing_at_a_commit_looked_at_still_follows_the_branch() {
 }
 
 #[test]
+fn only_the_whole_commit_shown_is_accepted_never_a_branch_in_its_place() {
+    let root = scratch("whole-commit");
+    let (repo, url) = team_repo(&root, TEAM);
+    let home = Home::new(root.join("home"));
+    let first = git(&repo, &["rev-parse", "HEAD"]);
+    for asked in ["main", &first[..7]] {
+        assert!(matches!(
+            subscribe(
+                &home,
+                &url,
+                Asked {
+                    at: Some(asked),
+                    ..Asked::default()
+                }
+            ),
+            Err(TeamError::NotTheCommit(_))
+        ));
+    }
+    accept(&home, &subscribe(&home, &url, Asked::default()).unwrap()).unwrap();
+    commit(&repo, &TEAM.replace("2025.4.8", "2025.5.0"), "One");
+    assert!(matches!(
+        at_commit(&home, "phin-tech", "main"),
+        Err(TeamError::NotTheCommit(_))
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_team_that_renames_itself_keeps_its_folder_so_your_keys_stay_found() {
     let root = scratch("renamed");
     let (repo, url) = team_repo(&root, TEAM);
@@ -408,9 +436,12 @@ fn only_a_git_repository_with_a_manifest_can_be_subscribed_to() {
 fn a_repository_that_wants_a_sign_in_says_how_to_give_one() {
     let error = super::fetch_error(
         "https://git.example.com/team.git",
-        &crate::skills::SkillsError::Fetch(
-            "https://git.example.com/team.git: fatal: could not read Username for 'https://git.example.com': terminal prompts disabled".to_string(),
-        ),
+        &crate::skills::SkillsError::Fetch(format!(
+            "https://git.example.com/team.git: {}",
+            crate::skills::fetch::telling_line(
+                "git@git.example.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
+            )
+        )),
     );
     assert_eq!(
         error,
