@@ -69,9 +69,24 @@ check:
 ci:
     starci run . --bare
 
+# Draw the pictures for the app's page on apps.phin.tech into docs/media (scripts/media.sh)
+media:
+    scripts/media.sh
+
 # Remove build output. The installed copy stays
 clean:
     cargo clean
+
+# Bump, commit and tag v<version> and push, for GitHub to release it (.github/workflows/release.yml; ship: on this Mac)
+[positional-arguments]
+cut part *args:
+    test "$(git branch --show-current)" = main || { echo "cut from main"; exit 1; }
+    git fetch --quiet origin main && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "main is not origin/main; push or pull first"; exit 1; }
+    {{release_tool}} bump "$@"
+    version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1) && \
+      git add -A && git commit --quiet -m "Patchbay $version" && git tag "v$version" && \
+      git push --quiet --atomic origin main "v$version" && \
+      echo "Pushed v$version; the build: https://github.com/phin-tech/patchbay/actions/workflows/release.yml"
 
 # The release recipes: app-release, in release.just, which gpui-template keeps up to date
 import 'release.just'

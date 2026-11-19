@@ -80,35 +80,46 @@ ask for something harmless.
 
 ## CI
 
-CI is [starci](https://git.phin.tech/sam/starci): the steps are in `.ci.star`, and `.forgejo/workflows/ci.yml` only
-starts `starci run .` on the Mac registered with the `macos` label, which needs rustup and starci on its `PATH`. Steps
-run bare, because GPUI needs macOS and Metal. Cargo's caches are kept on that Mac between runs. CI doesn't run
-`just release-check`, since app-release is private and bare steps have no credentials.
+GitHub Actions, on GitHub's Macs, since GPUI needs macOS and Metal. `.github/workflows/ci.yml` runs what `just check`
+and `just lint` do on every push to main and every pull request: formatting, clippy (with the screenshot feature too),
+the tests, cargo-deny and typos. Typecase and app-release come from git.phin.tech, which serves them without signing
+in. `.ci.star` still describes the same steps for [starci](https://git.phin.tech/sam/starci): `just ci` runs them here.
 
 ## Releasing
 
-[app-release](https://git.phin.tech/sam/app-release) does it, from what's in `release.toml`:
+[app-release](https://git.phin.tech/sam/app-release) does it, from what's in `release.toml`: the notarized app on the
+download page (apps.phin.tech), a GitHub release on phin-tech/patchbay tagged `v<version>`, the Sparkle appcast, and
+the cask in phin-tech/homebrew-tap (`brew install --cask phin-tech/tap/patchbay`, which puts `patchbay` on the PATH).
+
+Its secrets are in Infisical (`[secrets]` in `release.toml`): the project every Phin Tech app shares, env `prod`. Sign
+in once with `infisical login`. Two ways to release, from main:
 
 ```sh
 just doctor              # everything a release needs outside the repo
+just cut patch           # bump, commit, tag v<version> and push; GitHub builds and publishes it
+just ship patch          # or the whole release on this Mac: bump, commit, push, notarize, publish
 just ship patch --dry-run
-just ship patch          # bump, commit, push, notarize, publish
 ```
 
+`just cut` hands the release to `.github/workflows/release.yml`, which signs in to Infisical with GitHub's OIDC token
+as a machine identity only this repository's `v*` tags can use (its id is the repository variable `INFISICAL_IDENTITY`),
+then runs `just notarize` and `just release`. Besides the signing secrets, it reads `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`
+and `CLOUDFLARE_ACCOUNT_ID` from the project's `/ci` folder. `just ship`'s GitHub release pushes the same tag, so the
+workflow leaves a tag that already has a release alone.
+
 The version is the first `version` in `Cargo.toml`, with the build number under `[workspace.metadata.release]`. Both
-change only through `just bump` or `just ship`, and `crates/core` reads both (`version()`, for About). `cargo-app` has
-no TestFlight or development builds, and builds only for the Mac it runs on. Releases build with `--locked`, so
-`Cargo.lock` is committed.
+change only through `just bump`, `just cut` or `just ship`, and `crates/core` reads both (`version()`, for About).
+`cargo-app` has no TestFlight or development builds, and builds only for the Mac it runs on. Releases build with
+`--locked`, so `Cargo.lock` is committed.
 
 ### Updates
 
-The release puts Sparkle.framework in the app and points `SUFeedURL` at the appcast beside the zips
-(`https://apps.phin.tech/<key>/appcast.xml`);
+The release puts Sparkle.framework in the app and points `SUFeedURL` at the appcast on the latest GitHub release
+(`https://github.com/phin-tech/patchbay/releases/latest/download/appcast.xml`);
 `crates/app/src/update.rs` loads it at launch, so `just run` and `just install-local` have no updates. Each entry is
-signed with `sparkle_private_key` from the 1Password item, and the app trusts only `SUPublicEDKey` in
+signed with `SPARKLE_PRIVATE_KEY` from Infisical, and the app trusts only `SUPublicEDKey` in
 `packaging/Info.plist`. A beta (`just ship beta`) goes in the appcast's `beta` channel, which only copies with Get
-beta versions on in Settings take; a beta starts with it on. Sparkle can't sign in, so the app can't have an `allow` list on the download
-page.
+beta versions on in Settings take; a beta starts with it on. 
 
 app-release is pinned to a tag in `scripts/release/pyproject.toml`. Keep it on the newest one, as the other projects
 are (`uv lock --upgrade-package app-release --project scripts/release` after changing it): a release

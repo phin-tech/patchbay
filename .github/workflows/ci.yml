@@ -1,0 +1,54 @@
+# What `just check` and `just lint` run, on GitHub's Macs: GPUI needs macOS and Metal. rust-toolchain.toml says which
+# Rust; Typecase and app-release are fetched from git.phin.tech, which serves them without signing in.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust, as rust-toolchain.toml names it
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # The screenshot feature compiles code nothing else does.
+      - name: Clippy, with screenshots
+        run: cargo clippy -p patchbay --all-targets --locked --features screenshot -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,typos
+
+      - name: Licences, advisories and sources
+        run: cargo deny check
+
+      - name: Spelling
+        run: typos

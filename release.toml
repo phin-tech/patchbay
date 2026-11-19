@@ -5,8 +5,18 @@ app = "Patchbay"
 slug = "patchbay"
 bundle_id = "tech.phin.patchbay"
 description = "One place for your MCP servers and agent skills, shared with your team"
+# Releases on GitHub too, tagged v<version>, for the cask below and anyone who downloads from there.
+repo = "phin-tech/patchbay"
 team_id = "J35P7AJDN7"
 op_item = "op://Development/lc6wrq7lltjd47uue26cdxttzu"
+
+# Signing and notarization secrets (APPLE_ID, TEAM_ID, APP_SPECIFIC_PASSWORD, P12 base64-encoded, P12_PASSPHRASE,
+# SPARKLE_PRIVATE_KEY): Infisical Cloud, the project every Phin Tech app shares, env prod. On a Mac, `infisical login`;
+# the release workflow signs in with GitHub's OIDC token (.github/workflows/release.yml).
+[secrets]
+provider = "infisical"
+project = "ab5ef8f1-af05-4d58-875d-f0e28832d026"
+environment = "prod"
 
 [cargo]
 package = "patchbay"
@@ -16,7 +26,27 @@ entitlements = "packaging/app.entitlements"
 # Sparkle.framework goes in the app, with SUFeedURL pointing where the zips go; Info.plist holds SUPublicEDKey.
 sparkle = "2.10.0"
 
+# The cask in phin-tech/homebrew-tap: `brew install --cask phin-tech/tap/patchbay`. The app's binary answers the command
+# line too, so the cask puts it on the PATH as `patchbay`.
+[homebrew]
+tap = "phin-tech/homebrew-tap"
+token = "patchbay"
+macos = "sonoma"
+binary = { path = "Contents/MacOS/Patchbay", name = "patchbay" }
+
 # On the download page: the phin-apps bucket on Cloudflare R2, through the cf CLI (`cf auth login`). Under the name it
 # shows the description above. allow = ["someone@gmail.com"] keeps it to those people, after signing in (Cloudflare
 # Access), but not with Sparkle, which can't sign in; pin = true lists it first.
 [downloads]
+
+# The app's page on apps.phin.tech and its docs on docs.phin.tech, drawn by apps-site from what a release bundles. The
+# pictures are committed; `just media` redraws them after the window changes.
+[site]
+home = "README.md"
+exclude = ["design.md"]
+media = [
+  { file = "media/servers.png", caption = "Your servers, and what each needs" },
+  { file = "media/add-server.png", caption = "Paste a server's config, command or URL" },
+  { file = "media/clients.png", caption = "Choose what each tool gets" },
+  { file = "media/servers-dark.png", caption = "In the dark" },
+]
