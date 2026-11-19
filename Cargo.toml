@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 # The first `version` in this file is the app's: app-release reads and bumps it.
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 # An app, not a library: nothing here goes to crates.io.
 publish = false
@@ -31,7 +31,7 @@ typecase-keychain = { git = "https://git.phin.tech/sam/typecase.git", tag = "v0.
 
 # The build number, which app-release bumps along with the version above.
 [workspace.metadata.release]
-build = "1"
+build = "2"
 
 # Typecase's patched gpui-base, from the same tag as Typecase. It changes nothing the app doesn't ask for; see
 # vendor/README.md there.
