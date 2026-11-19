@@ -369,7 +369,10 @@ fn taking_over_a_skill_keeps_a_copy_whose_line_endings_differ() {
     let folders = Folders::new(&home);
     for (at, body) in [
         (".claude/skills/bedrock", "---\nname: bedrock\n---\nBody\n"),
-        (".cursor/skills/bedrock", "---\r\nname: bedrock\r\n---\r\nBody\r\n"),
+        (
+            ".cursor/skills/bedrock",
+            "---\r\nname: bedrock\r\n---\r\nBody\r\n",
+        ),
     ] {
         fs::create_dir_all(home.join(at)).unwrap();
         fs::write(home.join(at).join("SKILL.md"), body).unwrap();

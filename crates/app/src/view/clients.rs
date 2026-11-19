@@ -5,6 +5,13 @@ use patchbay_core::manifest::edit;
 
 use super::*;
 
+/// A client whose own servers, by name, are in the editor, to come out of it once Patchbay has them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TakingOver {
+    pub client: Client,
+    pub names: Vec<String>,
+}
+
 impl MainView {
     /// Reads each client's config, and puts right the entries of any connected client given an entry for each server
     /// whose servers have changed.
@@ -281,36 +288,66 @@ impl MainView {
         let Some(client) = self.client else {
             return;
         };
-        let Some((names, text)) = client.own_servers_pasted(&client_home(cx)) else {
+        let kept = own_server_names(cx);
+        let Some(own) = client.own_servers_pasted(&client_home(cx), &kept) else {
+            let said = if client.own_servers(&client_home(cx)).is_empty() {
+                t!(
+                    "%{client} has no servers of its own",
+                    client = client.name()
+                )
+            } else {
+                t!(
+                    "Patchbay already has every server %{client} has",
+                    client = client.name()
+                )
+            };
+            Toast::new(said).show(window, cx);
+            return;
+        };
+        if !own.left.is_empty() {
             Toast::new(t!(
-                "%{client} has no servers of its own",
+                "Left %{servers} in %{client}, since Patchbay has a server by that name",
+                servers = own.left.join(", "),
                 client = client.name()
             ))
             .show(window, cx);
-            return;
-        };
+        }
         self.start_editing(Editing::New, window, cx);
-        self.fill_paste(&text, window, cx);
-        self.taking_over = Some((client, names));
+        self.fill_paste(&own.pasted, window, cx);
+        self.taking_over = Some(TakingOver {
+            client,
+            names: own.names,
+        });
     }
 
-    /// Takes the servers just added out of `client`, and connects it if it wasn't, so it still has them.
+    /// Takes the servers just added, `saved`, out of the client being taken over, and connects it if it wasn't, so
+    /// it still has them. Only those saved: one taken out of the paste, or read under another name, stays. False if
+    /// none of them was saved, so nothing was taken over.
     pub(super) fn finish_taking_over(
         &mut self,
-        client: Client,
-        taken: &[String],
+        taking_over: TakingOver,
+        saved: &[&str],
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
+        let client = taking_over.client;
+        let taken: Vec<String> = taking_over
+            .names
+            .into_iter()
+            .filter(|name| saved.contains(&name.as_str()))
+            .collect();
+        if taken.is_empty() {
+            return false;
+        }
         let home = client_home(cx);
-        if let Err(error) = client.remove_own(&home, taken) {
+        if let Err(error) = client.remove_own(&home, &taken) {
             Toast::error(t!(
                 "Patchbay has them, but couldn't take them out of %{client}: %{error}",
                 client = client.name(),
                 error = error.to_string()
             ))
             .show(window, cx);
-            return;
+            return true;
         }
         Toast::new(t!(
             "Took over %{count} servers from %{client}: restart it to reach them through Patchbay",
@@ -324,6 +361,7 @@ impl MainView {
         } else {
             self.connect(client, window, cx);
         }
+        true
     }
 
     pub(super) fn disconnect(
@@ -644,4 +682,13 @@ fn entries_for(client: Client, cx: &App) -> Result<Vec<Entry>, String> {
         &binary,
         &patchbay_core::clients::bridge_env(),
     ))
+}
+
+/// The names of the servers in the person's own manifest.
+fn own_server_names(cx: &App) -> Vec<String> {
+    cx.try_global::<Running>()
+        .and_then(|running| std::fs::read_to_string(running.gateway.home().manifest()).ok())
+        .and_then(|text| patchbay_core::manifest::Manifest::from_toml(&text).ok())
+        .map(|manifest| manifest.servers.into_keys().collect())
+        .unwrap_or_default()
 }

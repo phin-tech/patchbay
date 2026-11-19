@@ -154,6 +154,15 @@ pub enum ClientError {
     Write { path: String, error: std::io::Error },
 }
 
+/// A client's own servers, ready to take over: their names, them as a block to paste into Add Server, and those left
+/// in the client since Patchbay already has a server by that name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnServers {
+    pub names: Vec<String>,
+    pub pasted: String,
+    pub left: Vec<String>,
+}
+
 impl Client {
     pub const ALL: [Client; 10] = [
         Client::ClaudeCode,
@@ -430,20 +439,24 @@ impl Client {
         self.connect(home, &[])
     }
 
-    /// The client's own servers' names, and them as one `mcpServers` block to paste into Add Server; none if it has
-    /// none.
-    pub fn own_servers_pasted(self, home: &Path) -> Option<(Vec<String>, String)> {
-        let own = self.own_servers(home);
-        if own.is_empty() {
+    /// The client's own servers but those named in `kept`, which Patchbay already has, as one `mcpServers` block
+    /// to paste into Add Server; none if that leaves none. Adding a server replaces one of the same name, so one
+    /// Patchbay has is left in the client rather than taking the place of the person's own.
+    pub fn own_servers_pasted(self, home: &Path, kept: &[String]) -> Option<OwnServers> {
+        let mut own = self.own_servers(home);
+        let (left, taken): (Vec<_>, Vec<_>) =
+            own.drain(..).partition(|(name, _)| kept.contains(name));
+        if taken.is_empty() {
             return None;
         }
-        let names = own.iter().map(|(name, _)| name.clone()).collect();
+        let names = taken.iter().map(|(name, _)| name.clone()).collect();
         let block =
-            serde_json::json!({ "mcpServers": own.into_iter().collect::<Map<String, Value>>() });
-        Some((
+            serde_json::json!({ "mcpServers": taken.into_iter().collect::<Map<String, Value>>() });
+        Some(OwnServers {
             names,
-            serde_json::to_string_pretty(&block).expect("JSON values always print"),
-        ))
+            pasted: serde_json::to_string_pretty(&block).expect("JSON values always print"),
+            left: left.into_iter().map(|(name, _)| name).collect(),
+        })
     }
 
     /// The servers the client has of its own, not Patchbay's, by their names in its config, each as the JSON a
@@ -463,10 +476,13 @@ impl Client {
     }
 
     /// Takes the servers `names` of the client's own out of its config under `home`, keeping a copy of the file as
-    /// it was beside it. Claude Code is asked to do it itself, as [`Client::connect`] does.
+    /// it was beside it, `<file>.patchbay-take-over-backup`. It's a file of its own, since connecting replaces
+    /// `<file>.patchbay-backup` each time, and the servers taken out would be in neither after the next. Claude Code
+    /// is asked to do it itself, as [`Client::connect`] does, but is backed up first all the same.
     pub fn remove_own(self, home: &Path, names: &[String]) -> Result<PathBuf, ClientError> {
         let path = self.config_path(home);
         let text = std::fs::read_to_string(&path).unwrap_or_default();
+        back_up(&path, &text, ".patchbay-take-over-backup")?;
         let names: Vec<&String> = names.iter().filter(|name| !is_ours(name)).collect();
         if self == Client::ClaudeCode && claude_code_remove(home, &names) {
             return Ok(path);
@@ -613,6 +629,26 @@ fn json_names(text: &str, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Keeps `old`, the file at `path` as it was, beside it as `<file><suffix>`, unless it was empty. These files hold
+/// other servers' tokens, so the backup keeps the original's permissions.
+fn back_up(path: &Path, old: &str, suffix: &str) -> Result<(), ClientError> {
+    if old.is_empty() {
+        return Ok(());
+    }
+    let write = |error| ClientError::Write {
+        path: path.display().to_string(),
+        error,
+    };
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(suffix);
+    let backup = PathBuf::from(backup);
+    crate::write_atomically(&backup, old.as_bytes()).map_err(write)?;
+    if let Ok(meta) = std::fs::metadata(path) {
+        std::fs::set_permissions(&backup, meta.permissions()).map_err(write)?;
+    }
+    Ok(())
+}
+
 fn save(path: &Path, old: &str, new: &str) -> Result<(), ClientError> {
     let write = |error| ClientError::Write {
         path: path.display().to_string(),
@@ -621,17 +657,8 @@ fn save(path: &Path, old: &str, new: &str) -> Result<(), ClientError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(write)?;
     }
-    // These files hold other servers' tokens, so the new file and the backup keep the original's permissions.
     let permissions = std::fs::metadata(path).ok().map(|meta| meta.permissions());
-    if !old.is_empty() {
-        let mut backup = path.as_os_str().to_owned();
-        backup.push(".patchbay-backup");
-        let backup = PathBuf::from(backup);
-        std::fs::write(&backup, old).map_err(write)?;
-        if let Some(permissions) = &permissions {
-            std::fs::set_permissions(&backup, permissions.clone()).map_err(write)?;
-        }
-    }
+    back_up(path, old, ".patchbay-backup")?;
     crate::write_atomically(path, new.as_bytes()).map_err(write)?;
     if let Some(permissions) = permissions {
         std::fs::set_permissions(path, permissions).map_err(write)?;
@@ -1000,6 +1027,34 @@ mod tests {
         assert_eq!(Client::Cursor.entries_in(&home), ["patchbay"]);
         assert!(Client::Cursor.own_servers(&home).is_empty());
         assert!(home.join(".cursor/mcp.json.patchbay-backup").is_file());
+        // Connecting again replaces the usual backup, but the one from before the take-over still has github.
+        Client::Cursor.connect(&home, &[]).unwrap();
+        let before =
+            std::fs::read_to_string(home.join(".cursor/mcp.json.patchbay-take-over-backup"))
+                .unwrap();
+        assert!(before.contains("server-github"), "{before}");
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_server_patchbay_already_has_is_left_in_the_client_when_taking_over() {
+        let home = std::env::temp_dir().join(format!("patchbay-own-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = Client::Cursor.config_path(&home);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = r#"{"mcpServers": {"github": {"command": "gh-mcp"}, "linear": {"url": "https://mcp.linear.app/mcp"}}}"#;
+        std::fs::write(&path, text).unwrap();
+        let own = Client::Cursor
+            .own_servers_pasted(&home, &["github".to_string()])
+            .unwrap();
+        assert_eq!(own.names, ["linear"]);
+        assert_eq!(own.left, ["github"]);
+        assert!(!own.pasted.contains("gh-mcp"), "{}", own.pasted);
+        assert!(
+            Client::Cursor
+                .own_servers_pasted(&home, &["github".into(), "linear".into()])
+                .is_none()
+        );
         std::fs::remove_dir_all(&home).unwrap();
     }
 

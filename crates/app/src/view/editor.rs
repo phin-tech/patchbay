@@ -195,8 +195,9 @@ impl MainView {
         self.editor = None;
         // Servers taken over from a client leave it only once Patchbay has them, and it reaches them through
         // Patchbay from then on.
-        if let Some((client, taken)) = self.taking_over.take() {
-            self.finish_taking_over(client, &taken, window, cx);
+        if let Some(taking_over) = self.taking_over.take()
+            && self.finish_taking_over(taking_over, &names, window, cx)
+        {
             return;
         }
         Toast::new(said)

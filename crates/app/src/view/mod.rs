@@ -149,8 +149,8 @@ pub struct MainView {
     signing_in: BTreeSet<String>,
     /// Servers whose secrets are shown to be replaced, as a wrong or expired key is.
     replacing: BTreeSet<String>,
-    /// A client whose own servers, by name, the editor is adding, to take out of it once they're added.
-    pub taking_over: Option<(Client, Vec<String>)>,
+    /// A client whose own servers the editor is adding, to take out of it once they're added.
+    pub taking_over: Option<clients::TakingOver>,
     /// A field at the top of each place's list, narrowing it to what matches.
     filters: Filters,
     /// The patch bay: its Cables, hanging from frame to frame, and any being dragged.

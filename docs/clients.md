@@ -44,10 +44,13 @@ From a terminal: `patchbay connect <client> --servers linear,github --layout per
 A tool that already has servers of its own shows them under **Its own**. **Take Over** (or **Take Over the Client's
 Servers…** in the Servers menu) brings them into Patchbay: they open in Add Server as if pasted, so you see what
 Patchbay will add and which keys it takes out for the Keychain. Choose **Add**, and Patchbay adds them to your
-`patchbay.toml`, takes them out of the tool's config (keeping a backup beside it), and connects the tool if it wasn't,
-so it reaches them through Patchbay from then on. Every other tool you connect gets them too.
+`patchbay.toml`, takes them out of the tool's config, and connects the tool if it wasn't, so it reaches them through
+Patchbay from then on. Every other tool you connect gets them too. The tool's config as it was is kept beside it, as
+`<file>.patchbay-take-over-backup`.
 
-Only a tool's user-level servers are taken over; a Claude Code project's own servers stay with the project.
+Only the servers you add leave the tool: one you delete from the paste before choosing **Add** stays where it is. So
+does one Patchbay already has a server by the same name for, rather than replacing yours. Only a tool's user-level
+servers are taken over; a Claude Code project's own servers stay with the project.
 
 ## Skills
 
