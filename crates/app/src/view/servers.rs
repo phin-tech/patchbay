@@ -571,7 +571,7 @@ impl MainView {
                         div()
                             .flex_1()
                             .max_w(rems(360. / 13.))
-                            .child(Input::new(field).small().h(rems(24. / 13.)).mask_toggle()),
+                            .child(small_field(field).mask_toggle()),
                     )
                     .child(
                         Button::new(SharedString::from(format!("save-{account}")))

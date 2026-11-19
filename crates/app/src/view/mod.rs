@@ -570,10 +570,7 @@ impl MainView {
             .py_1p5()
             .border_b_1()
             .border_color(cx.theme().border)
-            .children(
-                self.filter_for(place)
-                    .map(|filter| Input::new(filter).small().h(rems(24. / 13.))),
-            )
+            .children(self.filter_for(place).map(small_field))
     }
 
     /// Puts the keyboard in the filter of the place shown.
@@ -582,6 +579,11 @@ impl MainView {
             filter.read(cx).focus_handle(cx).focus(window, cx);
         }
     }
+}
+
+/// A one-line field at the kit's small size. The kit's Input fills whatever height it's offered, so it's given one.
+fn small_field(state: &Entity<InputState>) -> Input {
+    Input::new(state).small().h(rems(24. / 13.))
 }
 
 /// A line saying what a choice means, small and quiet under it.

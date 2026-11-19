@@ -156,8 +156,10 @@ impl Lock {
     pub fn write(&self, path: &Path) -> Result<(), SkillsError> {
         let text = serde_json::to_string_pretty(&Value::Object(self.root.clone()))
             .expect("a lock is always JSON");
-        crate::write_atomically(path, text.as_bytes())
-            .map_err(|error| SkillsError::Files(format!("{}: {error}", path.display())))
+        crate::write_atomically(path, text.as_bytes()).map_err(|error| SkillsError::Files {
+            kind: error.kind(),
+            message: format!("{}: {error}", path.display()),
+        })
     }
 }
 

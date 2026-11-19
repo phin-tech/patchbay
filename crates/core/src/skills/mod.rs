@@ -44,13 +44,21 @@ pub enum SkillsError {
     ReadsStore(String),
     #[error("{0} can't be read, so it's left as it is: move it aside and try again")]
     UnreadableLock(String),
-    #[error("{0}")]
-    Files(String),
+    /// A file or folder couldn't be read or written: what went wrong, by its kind for a caller to match on, and as it
+    /// was said.
+    #[error("{message}")]
+    Files {
+        kind: std::io::ErrorKind,
+        message: String,
+    },
 }
 
 impl From<std::io::Error> for SkillsError {
     fn from(error: std::io::Error) -> SkillsError {
-        SkillsError::Files(error.to_string())
+        SkillsError::Files {
+            kind: error.kind(),
+            message: error.to_string(),
+        }
     }
 }
 
@@ -391,9 +399,10 @@ fn same_as_store(at: &Path, store: &Path) -> bool {
 
 /// Copies the skill at `from` to `to` beside it first, then puts it in place, so a failure leaves the old one.
 fn copy_into_place(from: &Path, to: &Path) -> Result<(), SkillsError> {
-    let parent = to
-        .parent()
-        .ok_or_else(|| SkillsError::Files("no folder".into()))?;
+    let parent = to.parent().ok_or_else(|| SkillsError::Files {
+        kind: std::io::ErrorKind::InvalidInput,
+        message: format!("{} has no folder to go in", to.display()),
+    })?;
     fs::create_dir_all(parent)?;
     let name = to
         .file_name()

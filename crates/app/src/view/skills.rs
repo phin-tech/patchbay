@@ -3,7 +3,6 @@
 //! whole or as a source, fetches it off the window's thread, and installs the skills ticked.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use gpui_kit::component::checkbox::Checkbox;
 use patchbay_core::skills::{
@@ -58,13 +57,10 @@ pub struct SkillsState {
 /// Where skills go: the person's own folders when the app runs for real, the stand-in home otherwise, with the
 /// folders chosen in Settings.
 pub(crate) fn skill_folders(cx: &App) -> Folders {
-    let home = client_home(cx);
-    let real = std::env::var_os("HOME").is_some_and(|own| Path::new(&own) == home);
-    let folders = if real {
-        Folders::from_env(home)
-    } else {
-        Folders::new(home)
-    };
+    let folders = cx.try_global::<Running>().map_or_else(
+        || Folders::new(client_home(cx)),
+        |running| running.skill_folders.clone(),
+    );
     folders.chosen_in(&crate::settings::current(cx))
 }
 
@@ -819,11 +815,7 @@ impl MainView {
                 section(t!("Source"), cx).child(
                     h_flex()
                         .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .child(Input::new(&adding.field).small().h(rems(24. / 13.))),
-                        )
+                        .child(div().flex_1().child(small_field(&adding.field)))
                         .child(
                             Button::new("find-skills")
                                 .xsmall()

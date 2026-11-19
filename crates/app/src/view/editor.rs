@@ -332,7 +332,7 @@ impl MainView {
                         .map(|(name, _, _)| name);
                     body.child(
                         section(t!("Team"), cx)
-                            .child(Input::new(team).small().h(rems(24. / 13.)))
+                            .child(small_field(team))
                             .when_some(replacing, |section, name| {
                                 section.child(
                                     div()
