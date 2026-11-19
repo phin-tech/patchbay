@@ -4,8 +4,8 @@
 # pushes the same tag, so a tag that already has a release is left alone.
 #
 # Every secret comes from Infisical Cloud (the project Phin Tech's apps share, env prod), signed in with GitHub's OIDC
-# token as a machine identity that only v* tags of this repository can use; its id is the repository variable
-# INFISICAL_IDENTITY. GitHub stores none of them.
+# token as a machine identity that only phin-tech's v* tags can use; its id is the INFISICAL_IDENTITY secret or
+# variable, set for the phin-tech organization. GitHub stores none of them.
 #   /     what app-release reads itself (release.toml [secrets]): APPLE_ID, TEAM_ID, APP_SPECIFIC_PASSWORD, P12,
 #         P12_PASSPHRASE, SPARKLE_PRIVATE_KEY
 #   /ci   what the runner needs around it: GH_TOKEN (this repository's release, the tap, apps-site's deploy),
@@ -26,7 +26,8 @@ permissions:
 
 env:
   INFISICAL_PROJECT: ab5ef8f1-af05-4d58-875d-f0e28832d026
-  INFISICAL_IDENTITY: ${{ vars.INFISICAL_IDENTITY }}
+  # The machine identity's id: a phin-tech organization secret (or variable), or this repository's.
+  INFISICAL_IDENTITY: ${{ secrets.INFISICAL_IDENTITY || vars.INFISICAL_IDENTITY }}
   CF_SEND_TELEMETRY: "false"
   CARGO_TERM_COLOR: always
 
@@ -60,7 +61,7 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           [ "v$version" = "$tag" ] || { echo "::error::$tag, but Cargo.toml says $version"; exit 1; }
           [ -n "$INFISICAL_IDENTITY" ] ||
-            { echo "::error::Set the repository variable INFISICAL_IDENTITY to the machine identity's id"; exit 1; }
+            { echo "::error::Set INFISICAL_IDENTITY, a phin-tech organization secret, to the machine identity's id"; exit 1; }
 
       - uses: astral-sh/setup-uv@v6
         if: steps.released.outputs.done != 'true'

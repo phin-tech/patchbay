@@ -102,7 +102,7 @@ just ship patch --dry-run
 ```
 
 `just cut` hands the release to `.github/workflows/release.yml`, which signs in to Infisical with GitHub's OIDC token
-as a machine identity only this repository's `v*` tags can use (its id is the repository variable `INFISICAL_IDENTITY`),
+as a machine identity phin-tech's `v*` tags can use (its id is `INFISICAL_IDENTITY`, a phin-tech organization secret),
 then runs `just notarize` and `just release`. Besides the signing secrets, it reads `GH_TOKEN`, `CLOUDFLARE_API_TOKEN`
 and `CLOUDFLARE_ACCOUNT_ID` from the project's `/ci` folder. `just ship`'s GitHub release pushes the same tag, so the
 workflow leaves a tag that already has a release alone.
