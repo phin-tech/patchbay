@@ -39,6 +39,11 @@ Every server at once, and one on Only these when you tick it.
 
 From a terminal: `patchbay connect <client> --servers linear,github --layout per-server`.
 
+## Skills
+
+Tools that read agent skills get the ones you install in Patchbay too, each from its own skills folder: see
+[Your skills](skills.md).
+
 ## A server that isn't ready
 
 A server waiting for its key or a sign-in shows up in your tools as `<server>__needs_setup`. Calling it says what to do

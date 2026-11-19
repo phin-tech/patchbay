@@ -48,5 +48,6 @@ media = [
   { file = "media/servers.png", caption = "Your servers, and what each needs" },
   { file = "media/add-server.png", caption = "Paste a server's config, command or URL" },
   { file = "media/clients.png", caption = "Choose what each tool gets" },
+  { file = "media/skills.png", caption = "Skills, installed once for every tool" },
   { file = "media/servers-dark.png", caption = "In the dark" },
 ]

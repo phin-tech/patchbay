@@ -56,10 +56,12 @@ impl Source {
             return Err(SourceError::Empty);
         }
         if is_local(input) {
-            let path = if Path::new(input).is_absolute() {
-                PathBuf::from(input)
-            } else {
-                cwd.join(input)
+            // `~/` is the home folder, as a shell has it; the CLI would read it as `owner/repo` on GitHub.
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let path = match (input.strip_prefix("~/"), home) {
+                (Some(rest), Some(home)) => home.join(rest),
+                _ if Path::new(input).is_absolute() => PathBuf::from(input),
+                _ => cwd.join(input),
             };
             return Ok(Source {
                 kind: Kind::Local,
@@ -115,6 +117,7 @@ fn is_local(input: &str) -> bool {
         || input.starts_with("../")
         || input == "."
         || input == ".."
+        || input.starts_with("~/")
 }
 
 /// The `#ref` or `#ref@skill` after a git source, and the source without it.
@@ -324,6 +327,12 @@ mod tests {
         let source = parse("./mine");
         assert_eq!(source.kind, Kind::Local);
         assert_eq!(source.url, "/work/./mine");
+        // CI's steps may run without a HOME.
+        if let Ok(home) = std::env::var("HOME") {
+            let tilde = parse("~/src/mine");
+            assert_eq!(tilde.kind, Kind::Local);
+            assert_eq!(tilde.url, format!("{home}/src/mine"));
+        }
     }
 
     #[test]

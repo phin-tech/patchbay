@@ -1,11 +1,12 @@
 # Patchbay
 
-One place for your MCP servers. Patchbay runs them, keeps their keys in the Keychain, signs in to the ones that use
-OAuth, and puts every one behind a single local gateway. Then it points your AI tools at that gateway: Claude Code,
-Claude Desktop, Codex, Cursor, VS Code, Gemini CLI, opencode, pi, omp and PiG.
+One place for your MCP servers and agent skills. Patchbay runs your servers, keeps their keys in the Keychain, signs
+in to the ones that use OAuth, and puts every one behind a single local gateway. It installs skills once and gives
+them to every tool that reads them. Then it points your AI tools at all of it: Claude Code, Claude Desktop, Codex,
+Cursor, VS Code, Gemini CLI, opencode, pi, omp and PiG.
 
-Add a server once and every tool has it. Change a key once and every tool uses the new one. None of them ever sees
-the key.
+Add a server once and every tool has it. Change a key once and every tool uses the new one, and none of them ever
+sees it. Add a skill once and every tool that reads skills has it too.
 
 ![Patchbay's servers, one waiting for its key](docs/media/servers.png)
 
@@ -22,10 +23,21 @@ the key.
 - **Choose what each tool gets.** Every server, a profile of them, or only the ones you tick. And how: one entry with
   every tool named after its server (`linear__list_issues`), an entry for each server, or compact: three tools that
   search for the rest and call them, so a tool with many servers keeps its context for the work.
+- **Skills, the way skills.sh installs them.** Paste `owner/repo`, a GitHub link or a whole `npx skills add …` line
+  into Add Skills, tick the skills you want, and Patchbay installs them where `npx skills add -g` would, linked into
+  Claude Code, Cursor, VS Code, Gemini CLI and opencode, and read by Codex and pi. It keeps the same record as the
+  `skills` CLI, so the two look after one set of skills, and it checks each skill's source for changes and shows
+  which files changed.
+- **Skills you made yourself, taken over.** A skill already in a tool's folder is listed as your own and left alone
+  until you choose Take Over. Then Patchbay keeps one copy and links each tool to it, replacing only copies that are
+  the same.
+- **Find anything.** Every list has a filter (⌘F): type `aws` or `linear` to narrow it.
 - **Stays out of the way.** Close the window and the gateway keeps running from the menu bar, out of the Dock. Turn on
   Open at login in Settings and it's there whenever your tools are.
 
 ![Choosing what Codex gets](docs/media/clients.png)
+
+![Your skills, and which tools have each one](docs/media/skills.png)
 
 ## Getting it
 
@@ -48,12 +60,16 @@ patchbay sign-in linear                 # sign in to an OAuth server in the brow
 patchbay clients                        # which tools are connected
 patchbay connect cursor --servers linear --layout compact
 patchbay bridge server/linear           # a server over stdio, for a tool that only runs commands
+patchbay skills add vercel-labs/agent-skills --skill web-design-guidelines
+patchbay skills list                    # every skill, where it's from, and which tools have it
+patchbay skills update                  # fetch what's changed at each skill's source
 ```
 
 ## More
 
 - [Your servers: patchbay.toml](docs/servers.md)
 - [Your tools: clients and layouts](docs/clients.md)
+- [Your skills](docs/skills.md)
 - [Building and releasing Patchbay](DEVELOPMENT.md)
 
 Patchbay is made by Phin Tech, in Rust on [GPUI](https://gpui.rs), [gpui-kit](https://gpui-kit.com) and

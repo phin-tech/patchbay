@@ -17,3 +17,5 @@ shot servers-dark dark "wait wait"
 # Clients, with Codex connected in the capture's stand-in home, so its entries show.
 shot clients light "wait cmd-2 wait click:960,52 wait wait"
 shot add-server light "wait cmd-n wait"
+# Skills, from the two the capture's stand-in home is given: one installed from a repository, one of the person's own.
+shot skills light "wait cmd-3 wait"
