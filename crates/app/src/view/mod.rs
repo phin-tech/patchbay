@@ -302,12 +302,7 @@ impl MainView {
                 window,
                 cx,
             ),
-            "skills.update" => self.check_skills(
-                Vec::new(),
-                patchbay_core::skills::Checking::Apply,
-                window,
-                cx,
-            ),
+            "skills.update" => self.update_skills(None, window, cx),
             "skills.remove" => self.remove_chosen_skill(window, cx),
             "app.palette" => self.open_palette(window, cx),
             "app.keys" => self.open_keys(window, cx),

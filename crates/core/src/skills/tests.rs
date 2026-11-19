@@ -248,7 +248,13 @@ fn checking_finds_what_changed_and_updating_applies_it() {
             Change::Added("checklist.md".into())
         ]
     );
-    check(&folders, &["review".into()], Checking::Apply, "now").unwrap();
+    check(
+        &folders,
+        &["review".into()],
+        Checking::Apply(checked.updates.clone()),
+        "now",
+    )
+    .unwrap();
     assert!(home.join(".claude/skills/review/checklist.md").is_file());
     let entry = Lock::read(folders.lock()).get("review").unwrap();
     assert_eq!(entry.updated_at.as_deref(), Some("now"));
@@ -380,4 +386,53 @@ fn taking_over_a_skill_keeps_a_copy_whose_line_endings_differ() {
     let taken = super::take_over(&folders, "bedrock", "now").unwrap();
     assert_eq!(taken.linked, [Client::ClaudeCode]);
     assert_eq!(taken.kept, [Client::Cursor]);
+}
+
+#[test]
+fn an_update_applies_only_what_was_listed() {
+    let home = folder("update-listed-home");
+    let folders = Folders::new(&home);
+    let (repo, source) = repo("update-listed-repo", &["review", "plan"]);
+    let preview = Preview::fetch(source).unwrap();
+    let chosen = preview.choose(&["*".into()]).unwrap();
+    install(&folders, &preview, &chosen, &[Client::ClaudeCode], "then").unwrap();
+    drop(preview);
+    write_skill(&repo, "review", "Do it better.");
+    commit(&repo);
+    let listed = check(&folders, &[], Checking::Report, "now")
+        .unwrap()
+        .updates;
+    // The source moves on again between the check and the update, and a skill is installed meanwhile.
+    write_skill(&repo, "review", "Do it differently.");
+    commit(&repo);
+    let mut lock = Lock::read(folders.lock());
+    let mut other = lock.get("plan").unwrap();
+    other.source = "elsewhere".into();
+    lock.set("meanwhile", &other, "now");
+    lock.write(folders.lock()).unwrap();
+    let applied = check(&folders, &[], Checking::Apply(listed), "now").unwrap();
+    assert_eq!(applied.updates, []);
+    assert_eq!(applied.unchecked[0].0, "review");
+    assert!(
+        fs::read_to_string(folders.store().join("review/SKILL.md"))
+            .unwrap()
+            .contains("Do it well."),
+        "nothing newer than was listed is put in place"
+    );
+    // Checked again, it's listed as it is now and applies, and the skill installed meanwhile keeps its entry.
+    let listed = check(&folders, &[], Checking::Report, "now")
+        .unwrap()
+        .updates;
+    check(&folders, &[], Checking::Apply(listed), "now").unwrap();
+    assert!(
+        fs::read_to_string(folders.store().join("review/SKILL.md"))
+            .unwrap()
+            .contains("Do it differently.")
+    );
+    assert!(Lock::read(folders.lock()).get("meanwhile").is_some());
+    // Applying with nothing listed fetches nothing and changes nothing.
+    assert_eq!(
+        check(&folders, &[], Checking::Apply(Vec::new()), "now").unwrap(),
+        Default::default()
+    );
 }

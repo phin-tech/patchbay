@@ -766,6 +766,8 @@ pub struct Update {
     pub source: String,
     /// What would change in its folder, file by file.
     pub changes: Vec<Change>,
+    /// The hash of the skill as it was found, so applying it puts in place what was listed and nothing newer.
+    pub hash: String,
 }
 
 /// What [`check`] found: the updates, and the skills it couldn't check and why.
@@ -776,12 +778,13 @@ pub struct Checked {
 }
 
 /// What [`check`] does with a change it finds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Checking {
     /// Says what would change.
     Report,
-    /// Puts the change in place and records it.
-    Apply,
+    /// Puts in place the updates a report listed, and only those: one whose source has moved on again since is left,
+    /// and said so, since what it would put in place is no longer what was listed.
+    Apply(Vec<Update>),
 }
 
 /// The skills in the lock from one source at one ref, so they share one fetch.
@@ -795,9 +798,23 @@ pub fn check(
     checking: Checking,
     now: &str,
 ) -> Result<Checked, SkillsError> {
-    let apply = checking == Checking::Apply;
-    let mut lock = read_lock(folders)?;
-    let wanted: Vec<String> = names.iter().map(|name| folder_name(name)).collect();
+    let listed = match &checking {
+        Checking::Report => None,
+        Checking::Apply(updates) => Some(updates),
+    };
+    let lock = read_lock(folders)?;
+    let mut wanted: Vec<String> = names.iter().map(|name| folder_name(name)).collect();
+    if let Some(listed) = listed {
+        let named: Vec<String> = listed
+            .iter()
+            .map(|update| folder_name(&update.name))
+            .filter(|folder| wanted.is_empty() || wanted.contains(folder))
+            .collect();
+        if named.is_empty() {
+            return Ok(Checked::default());
+        }
+        wanted = named;
+    }
     let mut by_source: BySource = Vec::new();
     let mut checked = Checked::default();
     for name in lock.names() {
@@ -880,21 +897,33 @@ pub fn check(
                 continue;
             }
             let changes = changes(&target, &from);
-            if apply {
+            let hash = latest.unwrap_or_default();
+            if let Some(listed) = listed {
+                let as_listed = listed
+                    .iter()
+                    .any(|update| update.name == name && update.hash == hash);
+                if !as_listed {
+                    checked
+                        .unchecked
+                        .push((name, "it changed again since it was checked".to_string()));
+                    continue;
+                }
                 copy_into_place(&from, &target)?;
-                let mut entry = entry.clone();
-                entry.folder_hash = latest.unwrap_or_default();
+                // Read again and written as each is put in place, as installing does: a fetch can take minutes, and
+                // the lock read before it may since have gained or lost a skill, here or through the `skills` CLI.
+                let mut lock = read_lock(folders)?;
+                let mut entry = lock.get(&name).unwrap_or_else(|| entry.clone());
+                entry.folder_hash = hash.clone();
                 lock.set(&name, &entry, now);
+                lock.write(folders.lock())?;
             }
             checked.updates.push(Update {
                 name,
                 source: entry.source.clone(),
                 changes,
+                hash,
             });
         }
-    }
-    if apply && !checked.updates.is_empty() {
-        lock.write(folders.lock())?;
     }
     Ok(checked)
 }
