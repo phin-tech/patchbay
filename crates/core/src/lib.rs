@@ -7,6 +7,7 @@ pub mod database;
 mod files;
 pub mod form;
 mod home;
+pub mod import;
 mod links;
 mod locale;
 pub mod manifest;
