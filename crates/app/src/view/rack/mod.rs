@@ -2,6 +2,11 @@
 //! right, and a Cable from a client's jack to a server's for each server the client is given. Clicking a jack plugs a
 //! Cable in or pulls it out, which gives or takes that server, as ticking it under the client's Servers does. Each
 //! client's module has its power (connected or not) and its layout, and each label opens it in its own place.
+//!
+//! Skills hang under the servers. A Cable to a skill is a link to it in the client's skills folder, as ticking the
+//! client under the skill does in Skills. Where that can't change (a client that reads the store itself has every
+//! skill, and a client with its own copy keeps it), the Cable is hard-wired: grey, and fixed in place. A skill of
+//! someone's own, which Patchbay doesn't look after, is labelled local and has no jacks.
 
 mod cables;
 mod drag;
@@ -14,13 +19,14 @@ use gpui_kit::component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use patchbay_core::clients::{Choice, Client, Layout as Shape};
+use patchbay_core::skills::{Folders, Reach, Skill};
 use patchbay_core::strand::Point as Spot;
 use patchbay_gateway::{ServerStatus, Status};
 use rust_i18n::t;
 
 use cables::{Cables, Lead, Motion};
-use drag::{Drag, Outcome, Pair, Side};
-use layout::{Module, Rect};
+use drag::{Drag, Outcome, Pair, Port, Side};
+use layout::{Column, Module, Rect};
 
 /// The patch bay's own state: its Cables, the layout they were last hung on, and any Cable being dragged.
 #[derive(Default)]
@@ -28,6 +34,8 @@ pub struct Rack {
     cables: Cables,
     layout: layout::Layout,
     clients: Vec<Client>,
+    /// The skills' folders, in the rack's order.
+    skills: Vec<String>,
     /// Where the rack's top left was last drawn in the window, which a pointer's place is read against.
     origin: Rc<Cell<Point<Pixels>>>,
     drag: Option<Drag>,
@@ -47,31 +55,40 @@ impl Rack {
     /// The jack on `side` for `pair`, on the rack as last laid out.
     fn jack(&self, side: Side, pair: &Pair, servers: &[ServerStatus]) -> Option<Spot> {
         let client = self.clients.iter().position(|client| *client == pair.0)?;
-        let server = servers.iter().position(|server| server.name == pair.1)?;
-        match side {
-            Side::Client => self.layout.clients.get(client)?.jacks.get(server).copied(),
-            Side::Server => self.layout.servers.get(server)?.jacks.get(client).copied(),
+        match (&pair.1, side) {
+            (Port::Server(name), side) => {
+                let server = servers.iter().position(|server| &server.name == name)?;
+                match side {
+                    Side::Client => self.layout.clients.get(client)?.jacks.get(server).copied(),
+                    Side::Server => self.layout.servers.get(server)?.jacks.get(client).copied(),
+                }
+            }
+            (Port::Skill(_), Side::Client) => self.layout.skills_jack(client),
+            (Port::Skill(folder), Side::Server) => {
+                let skill = self.skills.iter().position(|each| each == folder)?;
+                self.layout.skills.get(skill)?.jacks.get(client).copied()
+            }
         }
     }
 
     /// The module the loose end of the Cable being dragged is over, as the Cable it would make there.
     fn over(&self, drag: &Drag, servers: &[ServerStatus]) -> Option<(Pair, Rect)> {
-        let clients = drag.target() == Side::Client;
-        let at = self.layout.module_at(clients, drag.at)?;
-        let (client, server, rect) = if clients {
+        let (client, port, rect) = if drag.target() == Side::Client {
+            let at = self.layout.module_at(Column::Clients, drag.at)?;
             (
                 Some(*self.clients.get(at)?),
                 None,
                 self.layout.clients[at].rect,
             )
+        } else if let Some(at) = self.layout.module_at(Column::Servers, drag.at) {
+            let name = servers.get(at)?.name.clone();
+            (None, Some(Port::Server(name)), self.layout.servers[at].rect)
         } else {
-            (
-                None,
-                Some(servers.get(at)?.name.as_str()),
-                self.layout.servers[at].rect,
-            )
+            let at = self.layout.module_at(Column::Skills, drag.at)?;
+            let folder = self.skills.get(at)?.clone();
+            (None, Some(Port::Skill(folder)), self.layout.skills[at].rect)
         };
-        Some((drag.over(client, server)?, rect))
+        Some((drag.over(client, port)?, rect))
     }
 }
 
@@ -179,6 +196,53 @@ fn lead_color(client: Client) -> Hsla {
     color(LEADS[at % LEADS.len()])
 }
 
+/// A hard-wired Cable's colour: plain grey, so it reads as part of the rack rather than a choice.
+fn wired_color() -> Hsla {
+    hsla(0., 0., 0.55, 1.)
+}
+
+/// Whether `skill` is one Patchbay looks after, so it can be linked to a client, rather than one of someone's own.
+fn linkable(skill: &Skill) -> bool {
+    skill.managed() && skill.stored
+}
+
+/// Why `client`'s link to `skill` can't change, if it can't.
+fn wired(skill: &Skill, client: Client, folders: &Folders) -> Option<String> {
+    let reach = skill
+        .clients
+        .iter()
+        .find(|(each, _)| *each == client)
+        .map(|(_, reach)| *reach);
+    if folders.reads_store(client) {
+        Some(
+            t!(
+                "%{client} reads ~/.agents/skills itself, so it has every skill there.",
+                client = client.name()
+            )
+            .into_owned(),
+        )
+    } else if reach == Some(Reach::Own) {
+        Some(
+            t!(
+                "%{client} has its own copy of %{skill}, so it's left as it is.",
+                client = client.name(),
+                skill = skill.name.clone()
+            )
+            .into_owned(),
+        )
+    } else {
+        None
+    }
+}
+
+/// A Cable's key among the rack's: whose it is and where it goes.
+fn key((client, port): &Pair) -> String {
+    match port {
+        Port::Server(name) => format!("{}/{name}", client.slug()),
+        Port::Skill(folder) => format!("{}/skill:{folder}", client.slug()),
+    }
+}
+
 /// A client's letter on the rack, `A` for the first shown, which its jack on each server's module carries too.
 fn letter(at: usize) -> String {
     char::from(b'A' + (at % 26) as u8).to_string()
@@ -223,16 +287,29 @@ impl MainView {
             .collect()
     }
 
-    fn plugged(&self, (client, server): &Pair) -> bool {
-        self.clients
-            .iter()
-            .find(|row| row.client == *client)
-            .is_some_and(|row| self.given(row).contains(server))
+    /// The skills on the rack, in its order: those Patchbay looks after first, then any of someone's own.
+    fn rack_skills(&self) -> Vec<Skill> {
+        let mut skills = self.skills.list.clone();
+        skills.sort_by_key(|skill| (!linkable(skill), skill.name.clone()));
+        skills
     }
 
-    /// Plugs in (true) or pulls out each Cable in `changes`, all the first one's client's, so a Cable moved
-    /// between two of its servers is one change: the client is given only the servers left plugged in, kept as its
-    /// own profile.
+    fn plugged(&self, (client, port): &Pair) -> bool {
+        match port {
+            Port::Server(server) => self
+                .clients
+                .iter()
+                .find(|row| row.client == *client)
+                .is_some_and(|row| self.given(row).contains(server)),
+            Port::Skill(folder) => self.skills.list.iter().any(|skill| {
+                &skill.folder == folder && skill.clients.iter().any(|(each, _)| each == client)
+            }),
+        }
+    }
+
+    /// Plugs in (true) or pulls out each Cable in `changes`, all the first one's client's. A server's are one change,
+    /// so a Cable moved between two of its servers is one: the client is given only the servers left plugged in,
+    /// kept as its own profile. A skill's links it into the client's skills folder, or takes the link out.
     fn set_plugged(
         &mut self,
         changes: &[(&Pair, bool)],
@@ -242,14 +319,27 @@ impl MainView {
         let Some(client) = changes.first().map(|(pair, _)| pair.0) else {
             return;
         };
+        for ((_, port), on) in changes {
+            if let Port::Skill(folder) = port {
+                self.give_skill(folder.clone(), client, *on, window, cx);
+            }
+        }
+        if !changes
+            .iter()
+            .any(|((_, port), _)| matches!(port, Port::Server(_)))
+        {
+            return;
+        }
         let Some(row) = self.clients.iter().find(|row| row.client == client) else {
             return;
         };
         let mut servers = self.given(row);
-        for ((_, server), on) in changes {
-            servers.retain(|given| given != server);
-            if *on {
-                servers.push(server.clone());
+        for ((_, port), on) in changes {
+            if let Port::Server(server) = port {
+                servers.retain(|given| given != server);
+                if *on {
+                    servers.push(server.clone());
+                }
             }
         }
         self.give(client, Given::Only(servers), window, cx);
@@ -261,12 +351,39 @@ impl MainView {
         self.set_plugged(&[(pair, on)], window, cx);
     }
 
-    /// A press on a jack: the start of a drag, or of a click.
-    fn press(&mut self, pair: Pair, side: Side, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let plugged = self.plugged(&pair);
+    /// A press on a jack: the start of a drag, or of a click. A hard-wired one says why it can't move instead.
+    fn press(
+        &mut self,
+        pair: Pair,
+        side: Side,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(why) = self.wired_to(&pair, cx) {
+            typecase::Toast::new(why).show(window, cx);
+            return;
+        }
+        // A client's skills all hang from its one skills jack, so a press there starts a new Cable rather than
+        // picking one of them up.
+        let bundle = side == Side::Client && matches!(pair.1, Port::Skill(_));
+        let plugged = !bundle && self.plugged(&pair);
         let at = self.rack.spot(at);
         self.rack.drag = Some(Drag::new(pair, side, plugged, at));
         cx.notify();
+    }
+
+    /// Why `pair`'s Cable is hard-wired, if it is one to a skill whose link can't change.
+    fn wired_to(&self, pair: &Pair, cx: &App) -> Option<String> {
+        let Port::Skill(folder) = &pair.1 else {
+            return None;
+        };
+        let skill = self
+            .skills
+            .list
+            .iter()
+            .find(|skill| &skill.folder == folder)?;
+        wired(skill, pair.0, &super::skills::skill_folders(cx))
     }
 
     fn drag_to(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
@@ -285,8 +402,20 @@ impl MainView {
         };
         drag.move_to(at);
         let over = self.rack.over(&drag, &self.servers).map(|(pair, _)| pair);
-        match drag.outcome(over, |pair| self.plugged(pair)) {
+        let outcome = drag.outcome(over, |pair| self.plugged(pair));
+        let landing = match &outcome {
+            Outcome::Plug(pair) | Outcome::Move { to: pair, .. } => self.wired_to(pair, cx),
+            _ => None,
+        };
+        if let Some(why) = landing {
+            typecase::Toast::new(why).show(window, cx);
+            cx.notify();
+            return;
+        }
+        match outcome {
             Outcome::Nothing => {}
+            // A click on a client's skills jack names no skill, so it does nothing.
+            Outcome::Toggle((_, Port::Skill(folder))) if folder.is_empty() => {}
             Outcome::Toggle(pair) => self.patch(&pair, window, cx),
             Outcome::Plug(pair) => self.set_plugged(&[(&pair, true)], window, cx),
             Outcome::Unplug(pair) => self.set_plugged(&[(&pair, false)], window, cx),
@@ -310,17 +439,29 @@ impl MainView {
         let shown: Vec<&ClientRow> = rows.iter().collect();
         // As tall as the panel, from the window's height less its title bar, so the rails run to its foot.
         let height = f32::from(window.viewport_size().height) - 3. * rem;
-        let rack = layout::layout(shown.len(), self.servers.len(), width, height, rem);
+        let skills = self.rack_skills();
+        let rack = layout::layout(
+            shown.len(),
+            self.servers.len(),
+            skills.len(),
+            width,
+            height,
+            rem,
+        );
         self.rack.layout = rack.clone();
         self.rack.clients = shown.iter().map(|row| row.client).collect();
+        self.rack.skills = skills.iter().map(|skill| skill.folder.clone()).collect();
+        let folders = super::skills::skill_folders(cx);
         let patched = self.patched(&shown);
         let drag = self.rack.drag.clone();
         let held = drag.as_ref().and_then(|drag| drag.held.clone());
-        let key = |(client, server): &Pair| format!("{}/{server}", client.slug());
         let mut leads: Vec<Lead> = patched
             .iter()
             .filter_map(|&(client, server)| {
-                let pair = (shown[client].client, self.servers[server].name.clone());
+                let pair = (
+                    shown[client].client,
+                    Port::Server(self.servers[server].name.clone()),
+                );
                 // A Cable picked up hangs from the pointer instead, below.
                 if held.as_ref() == Some(&pair) {
                     return None;
@@ -334,6 +475,32 @@ impl MainView {
                 })
             })
             .collect();
+        for (client_at, row) in shown.iter().enumerate() {
+            if folders.client(row.client).is_none() {
+                continue;
+            }
+            for (skill_at, skill) in skills.iter().enumerate() {
+                let has = skill.clients.iter().any(|(each, _)| *each == row.client);
+                let pair = (row.client, Port::Skill(skill.folder.clone()));
+                if !linkable(skill) || !has || held.as_ref() == Some(&pair) {
+                    continue;
+                }
+                let Some((from, to)) = rack.skill_cable(client_at, skill_at) else {
+                    continue;
+                };
+                let color = if wired(skill, row.client, &folders).is_some() {
+                    wired_color()
+                } else {
+                    lead_color(row.client)
+                };
+                leads.push(Lead {
+                    key: key(&pair),
+                    color,
+                    from,
+                    to,
+                });
+            }
+        }
         let over = drag
             .as_ref()
             .filter(|drag| drag.moved)
@@ -407,6 +574,14 @@ impl MainView {
         for (at, server) in self.servers.iter().enumerate() {
             let module = &rack.servers[at];
             inner = inner.child(self.server_module(server, at, module, &shown, rem, look, cx));
+            inner = inner.children(screws(rack.ears[1], module.rect, rem, look));
+        }
+        if let Some(divider) = rack.divider {
+            inner = inner.child(divider_plate(divider, look));
+        }
+        for (at, skill) in skills.iter().enumerate() {
+            let module = &rack.skills[at];
+            inner = inner.child(self.skill_module(skill, module, &shown, &folders, rem, look, cx));
             inner = inner.children(screws(rack.ears[1], module.rect, rem, look));
         }
         // The module a dragged Cable would go to lights up.
@@ -534,23 +709,51 @@ impl MainView {
                 ..look.panel_edge
             })
             .children(shapes);
-        let jacks = self.servers.iter().enumerate().map(|(server, status)| {
-            let name = status.name.clone();
-            let spot = local_spot(module, module.jacks[server]);
-            jack(
-                SharedString::from(format!("rack-jack-{slug}-{name}")),
-                spot,
-                (server + 1).to_string(),
-                rem,
-                look,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                    this.press((client, name.clone()), Side::Client, event.position, cx);
-                }),
-            )
-        });
+        let mut jacks: Vec<Stateful<Div>> = self
+            .servers
+            .iter()
+            .enumerate()
+            .map(|(server, status)| {
+                let name = status.name.clone();
+                let spot = local_spot(module, module.jacks[server]);
+                jack(
+                    SharedString::from(format!("rack-jack-{slug}-{name}")),
+                    spot,
+                    (server + 1).to_string(),
+                    rem,
+                    look,
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        let pair = (client, Port::Server(name.clone()));
+                        this.press(pair, Side::Client, event.position, window, cx);
+                    }),
+                )
+            })
+            .collect();
+        // One jack for all the client's skills, if it has a skills folder for them to go in.
+        if let Some(spot) = self.rack.layout.skills_jack(at)
+            && super::skills::skill_folders(cx).client(client).is_some()
+        {
+            jacks.push(
+                jack(
+                    SharedString::from(format!("rack-jack-{slug}-skills")),
+                    local_spot(module, spot),
+                    // As the skills' own modules are marked.
+                    "S".to_string(),
+                    rem,
+                    look,
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        let pair = (client, Port::Skill(String::new()));
+                        this.press(pair, Side::Client, event.position, window, cx);
+                    }),
+                ),
+            );
+        }
         let local = |rect: Rect| Rect {
             x: rect.x - module.rect.x,
             y: rect.y - module.rect.y,
@@ -641,8 +844,9 @@ impl MainView {
                 )
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                        this.press((client, name.clone()), Side::Server, event.position, cx);
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        let pair = (client, Port::Server(name.clone()));
+                        this.press(pair, Side::Server, event.position, window, cx);
                     }),
                 )
                 .into_any_element()
@@ -667,6 +871,118 @@ impl MainView {
             )
             .children(jacks)
     }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one thing a module is drawn from"
+    )]
+    fn skill_module(
+        &self,
+        skill: &Skill,
+        module: &Module,
+        clients: &[&ClientRow],
+        folders: &Folders,
+        rem: f32,
+        look: Look,
+        cx: &Context<Self>,
+    ) -> Div {
+        let folder = skill.folder.clone();
+        let ours = linkable(skill);
+        let tape = {
+            let folder = folder.clone();
+            tape(
+                if ours {
+                    "S".to_string()
+                } else {
+                    "L".to_string()
+                },
+                skill.name.clone(),
+                look,
+                cx,
+            )
+            .id(SharedString::from(format!("rack-skill-{folder}")))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.skills.chosen = Some(folder.clone());
+                this.show(Place::Skills, cx);
+            }))
+        };
+        let says = if ours {
+            skill.description.clone().unwrap_or_default().to_uppercase()
+        } else {
+            t!("Local: one of your own, left as it is").to_uppercase()
+        };
+        let jacks: Vec<AnyElement> = if ours {
+            clients
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| folders.client(row.client).is_some())
+                .map(|(client_at, row)| {
+                    let client = row.client;
+                    let spot = local_spot(module, module.jacks[client_at]);
+                    let folder = folder.clone();
+                    jack(
+                        SharedString::from(format!("rack-jack-skill-{folder}-{}", client.slug())),
+                        spot,
+                        letter(client_at),
+                        rem,
+                        look,
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                            let pair = (client, Port::Skill(folder.clone()));
+                            this.press(pair, Side::Server, event.position, window, cx);
+                        }),
+                    )
+                    .into_any_element()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let local = Rect {
+            x: module.face.x - module.rect.x,
+            y: 0.,
+            ..module.face
+        };
+        panel(module.rect, look)
+            .child(
+                place(local).child(
+                    v_flex()
+                        .size_full()
+                        .justify_center()
+                        .gap(rems(0.3))
+                        .p(rems(0.45))
+                        .pr(rems(0.7))
+                        .child(tape)
+                        .child(legend(says, look).truncate()),
+                ),
+            )
+            .children(jacks)
+    }
+}
+
+/// The plate over the skills, printed with what's below it.
+fn divider_plate(rect: Rect, look: Look) -> Div {
+    place(rect)
+        .rounded(px(2.))
+        .bg(look.rail)
+        .border_1()
+        .border_color(look.rail_edge)
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(rems(0.6))
+        .child(div().h(px(1.)).w(rems(3.)).bg(look.screw))
+        .child(
+            div()
+                .text_xs()
+                .font_bold()
+                .text_color(look.screw)
+                .child(t!("Skills").to_uppercase()),
+        )
+        .child(div().h(px(1.)).w(rems(3.)).bg(look.screw))
 }
 
 /// A module's front panel: brushed metal, lit from above, with a hairline catching the light along its top.
@@ -1004,7 +1320,21 @@ impl MainView {
         };
         let spot = self
             .rack
-            .jack(side, &(client, server.to_string()), &self.servers)
+            .jack(
+                side,
+                &(client, Port::Server(server.to_string())),
+                &self.servers,
+            )
+            .expect("the jack is on the rack");
+        self.on_screen(spot)
+    }
+
+    /// `client`'s jack on `folder`'s skill module.
+    pub(super) fn skill_jack_on_screen(&self, client: Client, folder: &str) -> Point<Pixels> {
+        let pair = (client, Port::Skill(folder.to_string()));
+        let spot = self
+            .rack
+            .jack(Side::Server, &pair, &self.servers)
             .expect("the jack is on the rack");
         self.on_screen(spot)
     }

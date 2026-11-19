@@ -1,16 +1,34 @@
 //! Patching by hand. Pressing an empty jack and dragging runs a new Cable from it, to whichever module on the other
 //! side it's let go over. Pressing a plugged jack picks that Cable up by its plug, leaving its other end where it is,
 //! to move it to another module on the same side, or pull it out by letting go over nothing. A press let go without
-//! moving is a click, which plugs or pulls out that jack's Cable.
+//! moving is a click, which plugs or pulls out that jack's Cable. A Cable goes where one of its kind can: a server's
+//! to a server, a skill's to a skill.
 
 use patchbay_core::clients::Client;
 use patchbay_core::strand::Point;
 
-/// Which column of the rack a jack or a module is in.
+/// Which side of the rack a jack or a module is on: the clients', or the servers' and skills'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
     Client,
     Server,
+}
+
+/// What a client's Cable goes to: a server, or a skill by its folder.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Port {
+    Server(String),
+    Skill(String),
+}
+
+impl Port {
+    /// Whether `other` is the same kind of thing, so a Cable for one can go to it.
+    pub fn same_kind(&self, other: &Port) -> bool {
+        matches!(
+            (self, other),
+            (Port::Server(_), Port::Server(_)) | (Port::Skill(_), Port::Skill(_))
+        )
+    }
 }
 
 impl Side {
@@ -22,8 +40,8 @@ impl Side {
     }
 }
 
-/// A Cable's two ends, by the client and the server it joins.
-pub type Pair = (Client, String);
+/// A Cable's two ends, by the client and the server or skill it joins.
+pub type Pair = (Client, Port);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Drag {
@@ -73,11 +91,14 @@ impl Drag {
         self.fixed().other()
     }
 
-    /// The Cable the loose end would make over a module of [`Drag::target`]'s side: that module's client or server
-    /// with the fixed end's.
-    pub fn over(&self, client: Option<Client>, server: Option<&str>) -> Option<Pair> {
+    /// The Cable the loose end would make over a module of [`Drag::target`]'s side: that module's client, or its
+    /// server or skill, with the fixed end's. None over a module of the wrong kind.
+    pub fn over(&self, client: Option<Client>, port: Option<Port>) -> Option<Pair> {
         match self.target() {
-            Side::Server => Some((self.pressed.0, server?.to_string())),
+            Side::Server => Some((
+                self.pressed.0,
+                port.filter(|port| port.same_kind(&self.pressed.1))?,
+            )),
             Side::Client => Some((client?, self.pressed.1.clone())),
         }
     }
@@ -117,12 +138,12 @@ pub enum Outcome {
 
 #[cfg(test)]
 mod tests {
-    use super::{Drag, Outcome, Side};
+    use super::{Drag, Outcome, Port, Side};
     use patchbay_core::clients::Client;
     use patchbay_core::strand::Point;
 
-    fn pair(client: Client, server: &str) -> (Client, String) {
-        (client, server.to_string())
+    fn pair(client: Client, server: &str) -> (Client, Port) {
+        (client, Port::Server(server.to_string()))
     }
 
     fn dragged(mut drag: Drag) -> Drag {
@@ -195,6 +216,20 @@ mod tests {
     }
 
     #[test]
+    fn a_servers_cable_cant_go_to_a_skill() {
+        let drag = dragged(Drag::new(
+            pair(Client::Pi, "linear"),
+            Side::Client,
+            false,
+            Point::default(),
+        ));
+        assert_eq!(
+            drag.over(None, Some(Port::Skill("review".to_string()))),
+            None
+        );
+    }
+
+    #[test]
     fn a_new_cable_let_go_onto_one_already_there_changes_nothing() {
         let drag = dragged(Drag::new(
             pair(Client::Pi, "linear"),
@@ -202,7 +237,7 @@ mod tests {
             false,
             Point::default(),
         ));
-        let over = drag.over(None, Some("github"));
+        let over = drag.over(None, Some(Port::Server("github".to_string())));
         assert_eq!(drag.outcome(over, |_| true), Outcome::Nothing);
     }
 }

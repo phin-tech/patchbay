@@ -329,7 +329,7 @@ impl MainView {
     }
 
     /// Gives a client the chosen skill, or takes it away.
-    fn give_skill(
+    pub(super) fn give_skill(
         &mut self,
         folder: String,
         client: Client,

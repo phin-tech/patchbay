@@ -89,7 +89,7 @@ pub fn init(cx: &mut App) {
 
 /// Puts two skills in a capture's stand-in home, so a frame of Skills shows what a row can be: one installed from a
 /// repository and linked into Claude Code, and one of the person's own in Cursor.
-fn seed_skills(home: &std::path::Path) {
+pub(crate) fn seed_skills(home: &std::path::Path) {
     let write = |folder: std::path::PathBuf, name: &str, description: &str| {
         let _ = std::fs::create_dir_all(&folder);
         let skill = format!("---\nname: {name}\ndescription: {description}\n---\n");

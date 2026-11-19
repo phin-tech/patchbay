@@ -620,3 +620,48 @@ fn a_plug_let_go_over_nothing_is_pulled_out_and_a_click_puts_it_back(cx: &mut Te
     cx.run_until_parked();
     assert_eq!(plugged(&view, Client::Pi, cx), ["alpha", "beta"]);
 }
+
+#[gpui_kit::test]
+fn a_skill_dragged_to_a_client_is_linked_into_its_folder_and_a_hard_wired_one_stays(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, TWO_SERVERS);
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    gateway::seed_skills(&home);
+    view.update(cx, |view, cx| view.sync_skills(cx));
+    cx.run_until_parked();
+    let linked = home.join(".cursor/skills/code-review");
+    assert!(!linked.exists());
+    let (from, to) = view.read_with(cx, |view, _| {
+        (
+            view.skill_jack_on_screen(Client::Cursor, "code-review"),
+            view.client_on_screen(Client::Cursor),
+        )
+    });
+    drag(from, to, cx);
+    assert!(linked.join("SKILL.md").is_file());
+    // Pulled out again by letting go of its plug over nothing.
+    let gap = view.read_with(cx, |view, _| view.gap_on_screen());
+    drag(from, gap, cx);
+    assert!(!linked.exists());
+    // Codex reads the store itself, so its Cable to the skill can't be pulled out.
+    let wired = view.read_with(cx, |view, _| {
+        view.skill_jack_on_screen(Client::Codex, "code-review")
+    });
+    drag(wired, gap, cx);
+    assert!(home.join(".agents/skills/code-review/SKILL.md").is_file());
+    view.read_with(cx, |view, _| {
+        let skill = view
+            .skills
+            .list
+            .iter()
+            .find(|skill| skill.folder == "code-review")
+            .unwrap();
+        assert!(
+            skill
+                .clients
+                .iter()
+                .any(|(client, _)| *client == Client::Codex)
+        );
+    });
+}
