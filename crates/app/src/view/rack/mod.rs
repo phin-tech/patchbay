@@ -18,7 +18,7 @@ use std::rc::Rc;
 use gpui_kit::component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use patchbay_core::clients::{Choice, Client, Layout as Shape};
+use patchbay_core::clients::{Client, Layout as Shape};
 use patchbay_core::skills::{Folders, Reach, Skill};
 use patchbay_core::strand::Point as Spot;
 use patchbay_gateway::{ServerStatus, Status};
@@ -665,11 +665,17 @@ impl MainView {
                 if !can_power {
                     return;
                 }
-                if connected {
-                    this.disconnect(client, window, cx);
-                } else {
-                    this.connect(client, window, cx);
-                }
+                // The switch is Clients ▸ Connect or Disconnect, for the client it's on.
+                this.client = Some(client);
+                this.run(
+                    if connected {
+                        "clients.disconnect"
+                    } else {
+                        "clients.connect"
+                    },
+                    window,
+                    cx,
+                );
             }));
         let shapes = Shape::ALL.into_iter().map(|shape| {
             let label = match shape {
@@ -677,9 +683,10 @@ impl MainView {
                 Shape::PerServer => t!("Separate"),
                 Shape::Compact => t!("Compact"),
             };
-            let choice = Choice {
-                layout: shape,
-                ..row.choice.clone()
+            let command = match shape {
+                Shape::OneEntry => "clients.layout-one",
+                Shape::PerServer => "clients.layout-separate",
+                Shape::Compact => "clients.layout-compact",
             };
             push_button(
                 SharedString::from(format!("rack-layout-{slug}-{shape:?}")),
@@ -688,7 +695,8 @@ impl MainView {
                 look,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.choose(client, choice.clone(), window, cx);
+                this.client = Some(client);
+                this.run(command, window, cx);
             }))
         });
         let face = module.face;

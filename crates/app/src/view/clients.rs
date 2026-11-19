@@ -254,6 +254,48 @@ impl MainView {
         self.sync(window, cx);
     }
 
+    /// Connects the chosen client, or takes Patchbay out of it.
+    pub(super) fn power_chosen_client(
+        &mut self,
+        on: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(client) = self.client else {
+            Toast::new(t!("Choose a client")).show(window, cx);
+            return;
+        };
+        if on {
+            self.connect(client, window, cx);
+        } else {
+            self.disconnect(client, window, cx);
+        }
+    }
+
+    /// Gives the chosen client its servers in `layout`, keeping the profile it has.
+    pub(super) fn lay_out_chosen_client(
+        &mut self,
+        layout: Layout,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(row) = self
+            .client
+            .and_then(|client| self.clients.iter().find(|row| row.client == client))
+        else {
+            Toast::new(t!("Choose a client")).show(window, cx);
+            return;
+        };
+        let (client, choice) = (
+            row.client,
+            Choice {
+                layout,
+                ..row.choice.clone()
+            },
+        );
+        self.choose(client, choice, window, cx);
+    }
+
     /// Keeps what `client` is given, and gives it that now if it's connected.
     pub(super) fn choose(
         &mut self,

@@ -390,6 +390,19 @@ impl MainView {
         }
     }
 
+    /// Puts in place the update listed for the chosen skill.
+    pub(super) fn update_chosen_skill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .chosen_skill()
+            .filter(|skill| skill.managed())
+            .map(|skill| skill.name.clone())
+        else {
+            Toast::new(t!("Choose a skill Patchbay or the skills CLI installed")).show(window, cx);
+            return;
+        };
+        self.update_skills(Some(name), window, cx);
+    }
+
     /// Fetches the sources of every skill, or only `names`, off the window's thread, and says which have changed
     /// or applies the changes.
     pub(super) fn check_skills(
@@ -592,7 +605,6 @@ impl MainView {
             Keeper::Locked(_) => shell::badge(Tag::success()).child(t!("Installed").into_owned()),
             Keeper::Unmanaged => shell::badge(Tag::secondary()).child(t!("Your own").into_owned()),
         };
-        let name = skill.name.clone();
         let header = self
             .panel_header_beside(skill.name.clone(), badge.xsmall(), cx)
             .child(
@@ -605,8 +617,8 @@ impl MainView {
                                 .xsmall()
                                 .disabled(self.skills.checking)
                                 .label(t!("Update").into_owned())
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.update_skills(Some(name.clone()), window, cx);
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.run("skills.update-chosen", window, cx);
                                 })),
                         )
                     })
