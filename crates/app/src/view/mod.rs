@@ -62,6 +62,8 @@ pub struct ClientRow {
     pub installed: bool,
     /// Patchbay's entries in its config, by name.
     pub entries: Vec<String>,
+    /// The servers it has of its own, not Patchbay's, by their names in its config.
+    pub own: Vec<String>,
     pub choice: Choice,
 }
 
@@ -144,6 +146,8 @@ pub struct MainView {
     signing_in: BTreeSet<String>,
     /// Servers whose secrets are shown to be replaced, as a wrong or expired key is.
     replacing: BTreeSet<String>,
+    /// A client whose own servers, by name, the editor is adding, to take out of it once they're added.
+    pub taking_over: Option<(Client, Vec<String>)>,
     /// A field at the top of each place's list, narrowing it to what matches.
     filters: Filters,
     _fields: Vec<Subscription>,
@@ -219,6 +223,7 @@ impl MainView {
             secrets: BTreeMap::new(),
             signing_in: BTreeSet::new(),
             replacing: BTreeSet::new(),
+            taking_over: None,
             filters,
             _fields: Vec::new(),
             _filters: filter_subscriptions,
@@ -268,6 +273,7 @@ impl MainView {
             "servers.add" => self.start_editing(Editing::New, window, cx),
             "servers.add-team" => self.start_editing(Editing::Team, window, cx),
             "servers.export" => self.start_export(window, cx),
+            "clients.take-over" => self.start_taking_over(window, cx),
             "servers.remove-team" => self.remove_chosen_team(window, cx),
             "servers.reload" => self.reload(window, cx),
             "servers.edit" => edit_manifest(cx),

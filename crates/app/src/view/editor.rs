@@ -133,6 +133,7 @@ impl MainView {
 
     pub(super) fn cancel_editing(&mut self, cx: &mut Context<Self>) {
         self.editor = None;
+        self.taking_over = None;
         cx.notify();
     }
 
@@ -192,6 +193,12 @@ impl MainView {
         };
         self.server = names.first().map(|name| (*name).to_string());
         self.editor = None;
+        // Servers taken over from a client leave it only once Patchbay has them, and it reaches them through
+        // Patchbay from then on.
+        if let Some((client, taken)) = self.taking_over.take() {
+            self.finish_taking_over(client, &taken, window, cx);
+            return;
+        }
         Toast::new(said)
             .key("added")
             .undo(move |_, cx| {

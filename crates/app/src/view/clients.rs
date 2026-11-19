@@ -20,6 +20,11 @@ impl MainView {
                 client,
                 installed: client.detected(&home),
                 entries: client.entries_in(&home),
+                own: client
+                    .own_servers(&home)
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect(),
                 choice: choices.get(client),
             })
             .collect();
@@ -165,6 +170,9 @@ impl MainView {
                     }),
                 cx,
             ))
+            .when(!row.own.is_empty(), |this| {
+                this.child(field(t!("Its own"), own_servers(row, cx), cx))
+            })
             .child(field(t!("Servers"), self.server_choice(row, cx), cx))
             .child(field(
                 t!("Layout"),
@@ -264,6 +272,57 @@ impl MainView {
             self.connect(client, window, cx);
         } else {
             self.sync(window, cx);
+        }
+    }
+
+    /// Opens the editor on the chosen client's own servers, as if they'd been pasted, so what Patchbay will add (and
+    /// the keys it takes out of them) is seen before anything changes.
+    pub(super) fn start_taking_over(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(client) = self.client else {
+            return;
+        };
+        let Some((names, text)) = client.own_servers_pasted(&client_home(cx)) else {
+            Toast::new(t!(
+                "%{client} has no servers of its own",
+                client = client.name()
+            ))
+            .show(window, cx);
+            return;
+        };
+        self.start_editing(Editing::New, window, cx);
+        self.fill_paste(&text, window, cx);
+        self.taking_over = Some((client, names));
+    }
+
+    /// Takes the servers just added out of `client`, and connects it if it wasn't, so it still has them.
+    pub(super) fn finish_taking_over(
+        &mut self,
+        client: Client,
+        taken: &[String],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let home = client_home(cx);
+        if let Err(error) = client.remove_own(&home, taken) {
+            Toast::error(t!(
+                "Patchbay has them, but couldn't take them out of %{client}: %{error}",
+                client = client.name(),
+                error = error.to_string()
+            ))
+            .show(window, cx);
+            return;
+        }
+        Toast::new(t!(
+            "Took over %{count} servers from %{client}: restart it to reach them through Patchbay",
+            count = taken.len(),
+            client = client.name()
+        ))
+        .key(format!("take-over-{}", client.slug()))
+        .show(window, cx);
+        if client.connected(&home) {
+            self.sync(window, cx);
+        } else {
+            self.connect(client, window, cx);
         }
     }
 
@@ -513,6 +572,34 @@ pub enum Given {
     Profile(String),
     /// These, by name, in the client's own profile.
     Only(Vec<String>),
+}
+
+/// The servers a client has of its own, and the button that brings them into Patchbay.
+fn own_servers(row: &ClientRow, cx: &Context<MainView>) -> Div {
+    v_flex()
+        .gap_1p5()
+        .child(
+            h_flex().gap_1().flex_wrap().children(
+                row.own
+                    .iter()
+                    .map(|name| shell::code_chip(name.clone(), cx)),
+            ),
+        )
+        .child(hint(
+            t!("Take Over adds them to Patchbay, with their keys in the Keychain, and takes them out of here."),
+            cx,
+        ))
+        .child(
+            h_flex().child(
+                Button::new("take-over-servers")
+                    .primary()
+                    .xsmall()
+                    .label(t!("Take Over").into_owned())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.run("clients.take-over", window, cx);
+                    })),
+            ),
+        )
 }
 
 fn client_badge(row: &ClientRow) -> Tag {

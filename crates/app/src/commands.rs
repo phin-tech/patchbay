@@ -21,6 +21,7 @@ pub const COMMANDS: &[&str] = &[
     "app.quit",
     "app.settings",
     "app.show-all",
+    "clients.take-over",
     "file.close",
     "file.new",
     "gateway.copy-url",

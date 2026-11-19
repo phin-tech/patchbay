@@ -430,6 +430,65 @@ impl Client {
         self.connect(home, &[])
     }
 
+    /// The client's own servers' names, and them as one `mcpServers` block to paste into Add Server; none if it has
+    /// none.
+    pub fn own_servers_pasted(self, home: &Path) -> Option<(Vec<String>, String)> {
+        let own = self.own_servers(home);
+        if own.is_empty() {
+            return None;
+        }
+        let names = own.iter().map(|(name, _)| name.clone()).collect();
+        let block =
+            serde_json::json!({ "mcpServers": own.into_iter().collect::<Map<String, Value>>() });
+        Some((
+            names,
+            serde_json::to_string_pretty(&block).expect("JSON values always print"),
+        ))
+    }
+
+    /// The servers the client has of its own, not Patchbay's, by their names in its config, each as the JSON a
+    /// README gives (`command`, `args`, `env`, `url`, `headers`), which [`crate::paste::read`] reads. Only its
+    /// user-level ones: a Claude Code project's servers stay with the project.
+    pub fn own_servers(self, home: &Path) -> Vec<(String, Value)> {
+        let Ok(text) = std::fs::read_to_string(self.config_path(home)) else {
+            return Vec::new();
+        };
+        let mut servers: Vec<(String, Value)> = match self.format() {
+            Format::Json { key, .. } => json_servers(&text, key),
+            Format::OpenCode => json_servers(&text, "mcp"),
+            Format::CodexToml => codex_servers(&text),
+        };
+        servers.retain(|(name, _)| !is_ours(name));
+        servers
+    }
+
+    /// Takes the servers `names` of the client's own out of its config under `home`, keeping a copy of the file as
+    /// it was beside it. Claude Code is asked to do it itself, as [`Client::connect`] does.
+    pub fn remove_own(self, home: &Path, names: &[String]) -> Result<PathBuf, ClientError> {
+        let path = self.config_path(home);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let names: Vec<&String> = names.iter().filter(|name| !is_ours(name)).collect();
+        if self == Client::ClaudeCode && claude_code_remove(home, &names) {
+            return Ok(path);
+        }
+        let shown = path.display().to_string();
+        let changed = match self.format() {
+            Format::Json { key, .. } => edit_json(&text, &shown, key, |servers| {
+                servers.retain(|name, _| !names.contains(&name));
+            }),
+            Format::OpenCode => edit_json(&text, &shown, "mcp", |servers| {
+                servers.retain(|name, _| !names.contains(&name));
+            }),
+            Format::CodexToml => edit_toml(&text, &shown, |servers| {
+                for name in &names {
+                    servers.remove(name);
+                }
+            }),
+        }?;
+        save(&path, &text, &changed)?;
+        Ok(path)
+    }
+
     /// The names of Patchbay's entries in the client's config under `home`.
     pub fn entries_in(self, home: &Path) -> Vec<String> {
         std::fs::read_to_string(self.config_path(home))
@@ -488,6 +547,63 @@ fn claude_code(home: &Path, present: &[String], wanted: &[(String, Value)]) -> b
             Some(entry.to_string()),
         )
     })
+}
+
+/// Takes Claude Code's own user-level servers `names` out with its own `claude mcp remove`. False if it couldn't, for
+/// the caller to edit the file instead; only for the real home, as [`claude_code`] is.
+fn claude_code_remove(home: &Path, names: &[&String]) -> bool {
+    use std::process::{Command, Stdio};
+
+    if std::env::var_os("HOME").is_none_or(|real| Path::new(&real) != home) {
+        return false;
+    }
+    names.iter().all(|name| {
+        Command::new("claude")
+            .args(["mcp", "remove", name.as_str(), "-s", "user"])
+            .env("PATH", crate::path::login_path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
+/// The servers under `key` in a JSON config, by name.
+fn json_servers(text: &str, key: &str) -> Vec<(String, Value)> {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|value| {
+            let servers = value.get(key)?.as_object()?;
+            Some(
+                servers
+                    .iter()
+                    .map(|(name, server)| (name.clone(), server.clone()))
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// Codex's `[mcp_servers.<name>]` tables, as the JSON a README gives: its `http_headers` are `headers`.
+fn codex_servers(text: &str) -> Vec<(String, Value)> {
+    let Ok(doc) = text.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    let Some(servers) = doc.get("mcp_servers").and_then(toml::Value::as_table) else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .filter_map(|(name, server)| {
+            let mut json = serde_json::to_value(server.as_table()?).ok()?;
+            let object = json.as_object_mut()?;
+            if let Some(headers) = object.remove("http_headers") {
+                object.insert("headers".into(), headers);
+            }
+            Some((name.clone(), json))
+        })
+        .collect()
 }
 
 fn json_names(text: &str, key: &str) -> Vec<String> {
@@ -857,6 +973,58 @@ mod tests {
         assert_eq!(backup, "{\"mcpServers\": {}}");
         Client::Cursor.disconnect(&home).unwrap();
         assert!(!Client::Cursor.connected(&home));
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn a_clients_own_servers_read_as_a_paste_and_come_out_leaving_patchbays() {
+        let home = std::env::temp_dir().join(format!("patchbay-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = Client::Cursor.config_path(&home);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let text = r#"{"mcpServers": {"github": {"command": "npx", "args": ["-y", "server-github"], "env": {"GITHUB_TOKEN": "ghp_abc123def456ghi789"}}, "patchbay": {"url": "http://127.0.0.1:7357/mcp"}}}"#;
+        std::fs::write(&path, text).unwrap();
+        let own = Client::Cursor.own_servers(&home);
+        let names: Vec<&str> = own.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["github"]);
+        let pasted = serde_json::json!({ "mcpServers": own.iter().cloned().collect::<serde_json::Map<_, _>>() });
+        let read = crate::paste::read(&pasted.to_string()).unwrap();
+        assert_eq!(read[0].name, "github");
+        assert!(
+            read[0].secrets[0].value.is_some(),
+            "the token is taken out, to be kept in the Keychain"
+        );
+        Client::Cursor
+            .remove_own(&home, &["github".to_string()])
+            .unwrap();
+        assert_eq!(Client::Cursor.entries_in(&home), ["patchbay"]);
+        assert!(Client::Cursor.own_servers(&home).is_empty());
+        assert!(home.join(".cursor/mcp.json.patchbay-backup").is_file());
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn codexs_own_servers_read_with_their_headers() {
+        let home = std::env::temp_dir().join(format!("patchbay-own-codex-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = Client::Codex.config_path(&home);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "model = \"o3\"\n\n[mcp_servers.linear]\nurl = \"https://mcp.linear.app/mcp\"\nhttp_headers = { Authorization = \"Bearer lin_abc\" }\n",
+        )
+        .unwrap();
+        let own = Client::Codex.own_servers(&home);
+        assert_eq!(own[0].0, "linear");
+        assert_eq!(own[0].1["headers"]["Authorization"], "Bearer lin_abc");
+        Client::Codex
+            .remove_own(&home, &["linear".to_string()])
+            .unwrap();
+        let left = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            left.contains("model = \"o3\"") && !left.contains("linear"),
+            "{left}"
+        );
         std::fs::remove_dir_all(&home).unwrap();
     }
 }

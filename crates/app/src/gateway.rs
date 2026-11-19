@@ -67,9 +67,14 @@ pub fn init(cx: &mut App) {
         // With one profile beside the default, so a capture shows a client's profile too.
         let manifest = format!("{STARTER}\n[profiles.issues]\nservers = [\"linear\"]\n");
         let _ = std::fs::write(home.manifest(), manifest);
-        let skills = home.root().join("client-home");
+        let stand_in = home.root().join("client-home");
         init_with(home, Secrets::Memory, cx);
-        seed_skills(&skills);
+        seed_skills(&stand_in);
+        // A server of Codex's own, so a frame of Codex shows what Take Over offers.
+        let _ = std::fs::write(
+            stand_in.join(".codex/config.toml"),
+            "[mcp_servers.sentry]\nurl = \"https://mcp.sentry.dev/mcp\"\n",
+        );
         return;
     }
     let home = Home::from_env();

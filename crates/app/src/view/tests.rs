@@ -491,3 +491,33 @@ fn skills_found_in_a_pasted_source_are_installed_for_each_client_and_listed(
     });
     assert!(home.join(".cursor/skills/mine/SKILL.md").is_file());
 }
+
+#[gpui_kit::test]
+fn a_clients_own_servers_are_taken_over_into_your_manifest_and_out_of_its_config(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, "# Mine, before Cursor's servers are taken over.\n");
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    let config = Client::Cursor.config_path(&home);
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(
+        &config,
+        r#"{"mcpServers": {"github": {"command": "npx", "args": ["-y", "server-github"], "env": {"GITHUB_TOKEN": "ghp_abc123def456ghi789"}}}}"#,
+    )
+    .unwrap();
+    view.update_in(cx, |view, window, cx| {
+        view.sync(window, cx);
+        view.client = Some(Client::Cursor);
+        view.run("clients.take-over", window, cx);
+        assert!(view.editor.as_ref().unwrap().read.is_ok());
+        view.save_editor(window, cx);
+    });
+    let mine = manifest(cx);
+    assert!(mine.contains("[servers.github]"), "{mine}");
+    assert!(
+        !mine.contains("ghp_abc123"),
+        "the key went to the Keychain: {mine}"
+    );
+    assert!(Client::Cursor.own_servers(&home).is_empty());
+    assert_eq!(Client::Cursor.entries_in(&home), ["patchbay"]);
+}

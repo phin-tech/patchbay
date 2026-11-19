@@ -20,6 +20,8 @@ sees it. Add a skill once and every tool that reads skills has it too.
   replaced with Change Key.
 - **One gateway, many tools.** Every tool talks to `http://127.0.0.1:7357/mcp`. Connect a tool in the Clients list and
   Patchbay writes its entry into that tool's own config, leaving everything else in it alone, with a backup beside it.
+- **Bring in what your tools already have.** A tool's own servers are listed on its page. Take Over moves them into
+  Patchbay, keys into the Keychain, and out of that tool's config, so every tool gets them.
 - **Choose what each tool gets.** Every server, a profile of them, or only the ones you tick. And how: one entry with
   every tool named after its server (`linear__list_issues`), an entry for each server, or compact: three tools that
   search for the rest and call them, so a tool with many servers keeps its context for the work.
