@@ -39,6 +39,18 @@ Every server at once, and one on Only these when you tick it.
 
 From a terminal: `patchbay connect <client> --servers linear,github --layout per-server`.
 
+## The patch bay
+
+The main window opens on the patch bay, a rack with a module for each tool on the left and each server on the right.
+A **cable** runs from a tool's jack to a server's for each server the tool is given: drag one from a server to a tool
+to give it that server, drag a plug to another tool to move it, or let it go over nothing to pull it out. Cables say
+what a tool gets; its **Connected** switch says whether it has Patchbay at all, as **Connect** and **Disconnect** do,
+and the buttons beside it choose its layout. Each of those is in the Clients menu too, for the tool chosen. Skills hang
+below the servers and are patched to tools the same way; one of your own is hard-wired, and stays as it is until it's
+taken over.
+
+Turn it off in **Settings ▸ General** to open on Servers instead.
+
 ## Servers a tool already has
 
 A tool that already has servers of its own shows them under **Its own**, and the first time you connect it, Patchbay

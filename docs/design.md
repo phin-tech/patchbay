@@ -221,7 +221,9 @@ see what Patchbay installed. (This replaces an earlier plan for a store and lock
 Built with Typecase's parts and the shared look (`typecase::shell`, 0.29):
 
 - **Menu bar extra**: the gateway's state, servers needing a secret or a sign-in, copy the endpoint, open the window.
-- **Main window**, sidebar of `Servers`, `Clients`, `Skills`, `Teams`:
+- **Main window**, sidebar of `Patch Bay`, `Servers`, `Clients`, `Skills`, `Teams`:
+  - Patch Bay: a rack of a module for each client and each server, and a Cable for each server a client is given,
+    patched by dragging; skills hang below and are patched the same way. It opens on it unless Settings turns it off.
   - Servers: a list with status (running, idle, needs a secret, sign in needed, failing), and a detail view with
     its tools and their switches. The **filter bar** narrows it (`server:github is:write is:off`).
   - Clients: each detected client, its profile, Connect and Disconnect.
