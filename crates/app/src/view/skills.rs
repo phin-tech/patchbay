@@ -228,7 +228,7 @@ impl MainView {
             .filter(|found| chosen.contains(&found.name))
             .collect();
         let clients = request.clients_for(&folders);
-        match skills::install(&folders, preview, &found, &clients, &skills::now()) {
+        match skills::install(&folders, preview, &found, &clients, &skills::Stamp::now()) {
             Ok(installed) => {
                 let blocked = installed.iter().any(|skill| !skill.blocked.is_empty());
                 let first = installed
@@ -318,7 +318,7 @@ impl MainView {
         }
         let (mut taken, mut kept, mut failed) = (Vec::new(), 0, Vec::new());
         for folder in &folders_to_take {
-            match skills::take_over(&folders, folder, &skills::now()) {
+            match skills::take_over(&folders, folder, &skills::Stamp::now()) {
                 Ok(done) => {
                     kept += done.kept.len();
                     taken.push(done);
@@ -433,7 +433,7 @@ impl MainView {
         let folders = skill_folders(cx);
         let applying = matches!(checking, Checking::Apply(_));
         let work = cx.background_spawn(async move {
-            skills::check(&folders, &names, checking, &skills::now())
+            skills::check(&folders, &names, checking, &skills::Stamp::now())
         });
         self.skills._task = Some(cx.spawn_in(window, async move |this, cx| {
             let checked = work.await;

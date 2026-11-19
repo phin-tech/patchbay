@@ -61,7 +61,7 @@ impl Skills {
                 }
             }
             Skills::Check => {
-                let checked = skills::check(folders, &[], Checking::Report, &skills::now())?;
+                let checked = skills::check(folders, &[], Checking::Report, &skills::Stamp::now())?;
                 for update in &checked.updates {
                     writeln!(
                         out,
@@ -82,7 +82,8 @@ impl Skills {
             }
             Skills::Update(names) => {
                 // What changes is listed before it's put in place, and only what was listed is.
-                let listed = skills::check(folders, &names, Checking::Report, &skills::now())?;
+                let listed =
+                    skills::check(folders, &names, Checking::Report, &skills::Stamp::now())?;
                 for update in &listed.updates {
                     writeln!(
                         out,
@@ -100,7 +101,7 @@ impl Skills {
                         folders,
                         &names,
                         Checking::Apply(listed.updates),
-                        &skills::now(),
+                        &skills::Stamp::now(),
                     )?;
                     for update in &applied.updates {
                         writeln!(out, "Updated {}.", update.name)?;
@@ -151,7 +152,7 @@ fn add(
         preview.found.iter().collect()
     };
     let clients = request.clients_for(folders);
-    let installed = skills::install(folders, &preview, &chosen, &clients, &skills::now())?;
+    let installed = skills::install(folders, &preview, &chosen, &clients, &skills::Stamp::now())?;
     for skill in installed {
         let names: Vec<&str> = skill.linked.iter().map(|client| client.name()).collect();
         writeln!(

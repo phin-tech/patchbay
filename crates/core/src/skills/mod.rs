@@ -198,11 +198,30 @@ pub fn folder_name(name: &str) -> String {
     }
 }
 
-/// The time as the lock writes it: `2026-11-19T10:00:00.000Z`.
-pub fn now() -> String {
-    jiff::Timestamp::now()
-        .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
-        .to_string()
+/// A time as the lock records it, in `installedAt` and `updatedAt`: UTC to the millisecond, as the `skills` CLI writes
+/// it, `2026-11-19T10:00:00.000Z`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp(String);
+
+impl Stamp {
+    pub fn now() -> Stamp {
+        Stamp(
+            jiff::Timestamp::now()
+                .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
+        )
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// One as written, as tests give them.
+impl From<&str> for Stamp {
+    fn from(text: &str) -> Stamp {
+        Stamp(text.to_string())
+    }
 }
 
 /// A source fetched and looked through, its files kept until it's dropped.
@@ -304,7 +323,7 @@ pub fn install(
     preview: &Preview,
     chosen: &[&Found],
     clients: &[Client],
-    now: &str,
+    now: &Stamp,
 ) -> Result<Vec<Installed>, SkillsError> {
     let mut lock = read_lock(folders)?;
     // Every skill is checked before any is copied, so a refusal leaves nothing half done.
@@ -509,7 +528,7 @@ pub struct TakenOver {
 /// Puts a skill of the person's own in Patchbay's care: copied into the store if it isn't there, recorded in the lock
 /// as a skill from this Mac (which the `skills` CLI never fetches or updates), and each client's copy replaced by a
 /// link to the store, only where its files are the same. Nothing that differs is replaced, so nothing is lost.
-pub fn take_over(folders: &Folders, folder: &str, now: &str) -> Result<TakenOver, SkillsError> {
+pub fn take_over(folders: &Folders, folder: &str, now: &Stamp) -> Result<TakenOver, SkillsError> {
     let mut lock = read_lock(folders)?;
     if let Some(name) = lock.name_for_folder(folder) {
         return Err(SkillsError::AlreadyKept(name));
@@ -825,7 +844,7 @@ pub fn check(
     folders: &Folders,
     names: &[String],
     checking: Checking,
-    now: &str,
+    now: &Stamp,
 ) -> Result<Checked, SkillsError> {
     let listed = match &checking {
         Checking::Report => None,

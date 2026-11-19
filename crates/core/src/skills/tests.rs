@@ -89,7 +89,7 @@ fn installing_copies_into_the_store_links_each_client_and_records_it_in_the_lock
         &preview,
         &chosen,
         &[Client::ClaudeCode, Client::Codex, Client::Cursor],
-        "now",
+        &"now".into(),
     )
     .unwrap();
     assert_eq!(
@@ -120,7 +120,14 @@ fn a_skill_of_someones_own_is_never_replaced() {
     let chosen = preview.choose(&[]).unwrap_or_default();
     assert!(chosen.is_empty(), "nothing is chosen unless asked for");
     let chosen = preview.choose(&["*".into()]).unwrap();
-    let installed = install(&folders, &preview, &chosen, &[Client::ClaudeCode], "now").unwrap();
+    let installed = install(
+        &folders,
+        &preview,
+        &chosen,
+        &[Client::ClaudeCode],
+        &"now".into(),
+    )
+    .unwrap();
     assert_eq!(installed[0].blocked, [Client::ClaudeCode]);
     assert_eq!(
         fs::read_to_string(home.join(".claude/skills/review/SKILL.md")).unwrap(),
@@ -130,7 +137,13 @@ fn a_skill_of_someones_own_is_never_replaced() {
     let unrecorded = folder("own-home-2");
     fs::create_dir_all(unrecorded.join(".agents/skills/review")).unwrap();
     assert!(matches!(
-        install(&Folders::new(&unrecorded), &preview, &chosen, &[], "now"),
+        install(
+            &Folders::new(&unrecorded),
+            &preview,
+            &chosen,
+            &[],
+            &"now".into()
+        ),
         Err(SkillsError::NotOurs(_))
     ));
     assert!(matches!(
@@ -151,7 +164,7 @@ fn listing_says_who_keeps_each_skill_and_which_clients_have_it() {
         &preview,
         &chosen,
         &[Client::ClaudeCode, Client::Pi],
-        "now",
+        &"now".into(),
     )
     .unwrap();
     fs::create_dir_all(home.join(".cursor/skills/mine")).unwrap();
@@ -209,7 +222,7 @@ fn removing_takes_out_the_links_the_folder_and_the_lock_entry() {
         &preview,
         &chosen,
         &[Client::ClaudeCode, Client::GeminiCli],
-        "now",
+        &"now".into(),
     )
     .unwrap();
     assert_eq!(remove(&folders, "Review").unwrap(), "review");
@@ -226,10 +239,17 @@ fn checking_finds_what_changed_and_updating_applies_it() {
     let (repo, source) = repo("update-repo", &["review", "plan"]);
     let preview = Preview::fetch(source).unwrap();
     let chosen = preview.choose(&["*".into()]).unwrap();
-    install(&folders, &preview, &chosen, &[Client::ClaudeCode], "then").unwrap();
+    install(
+        &folders,
+        &preview,
+        &chosen,
+        &[Client::ClaudeCode],
+        &"then".into(),
+    )
+    .unwrap();
     drop(preview);
     assert_eq!(
-        check(&folders, &[], Checking::Report, "now")
+        check(&folders, &[], Checking::Report, &"now".into())
             .unwrap()
             .updates,
         []
@@ -238,7 +258,7 @@ fn checking_finds_what_changed_and_updating_applies_it() {
     write_skill(&repo, "review", "Do it better.");
     fs::write(repo.join("skills/review/checklist.md"), "- one\n").unwrap();
     commit(&repo);
-    let checked = check(&folders, &[], Checking::Report, "now").unwrap();
+    let checked = check(&folders, &[], Checking::Report, &"now".into()).unwrap();
     assert_eq!(checked.updates.len(), 1);
     assert_eq!(checked.updates[0].name, "review");
     assert_eq!(
@@ -252,7 +272,7 @@ fn checking_finds_what_changed_and_updating_applies_it() {
         &folders,
         &["review".into()],
         Checking::Apply(checked.updates.clone()),
-        "now",
+        &"now".into(),
     )
     .unwrap();
     assert!(home.join(".claude/skills/review/checklist.md").is_file());
@@ -260,7 +280,7 @@ fn checking_finds_what_changed_and_updating_applies_it() {
     assert_eq!(entry.updated_at.as_deref(), Some("now"));
     assert_eq!(entry.installed_at.as_deref(), Some("then"));
     assert_eq!(
-        check(&folders, &[], Checking::Report, "later")
+        check(&folders, &[], Checking::Report, &"later".into())
             .unwrap()
             .updates,
         []
@@ -287,7 +307,14 @@ fn a_skill_can_be_given_to_one_more_client_or_taken_from_one() {
     let (_repo, source) = repo("link-repo", &["review"]);
     let preview = Preview::fetch(source).unwrap();
     let chosen = preview.choose(&["review".into()]).unwrap();
-    install(&folders, &preview, &chosen, &[Client::ClaudeCode], "now").unwrap();
+    install(
+        &folders,
+        &preview,
+        &chosen,
+        &[Client::ClaudeCode],
+        &"now".into(),
+    )
+    .unwrap();
     super::link_client(&folders, "review", Client::Cursor).unwrap();
     assert!(home.join(".cursor/skills/review/SKILL.md").is_file());
     super::unlink_client(&folders, "review", Client::ClaudeCode).unwrap();
@@ -316,7 +343,7 @@ fn taking_over_a_skill_links_the_copies_that_match_and_keeps_the_rest() {
         "changed by hand",
     )
     .unwrap();
-    let taken = super::take_over(&folders, "bedrock", "now").unwrap();
+    let taken = super::take_over(&folders, "bedrock", &"now".into()).unwrap();
     assert_eq!(taken.name, "bedrock");
     assert_eq!(taken.linked, [Client::ClaudeCode, Client::Cursor]);
     assert_eq!(taken.kept, [Client::GeminiCli]);
@@ -332,10 +359,10 @@ fn taking_over_a_skill_links_the_copies_that_match_and_keeps_the_rest() {
     assert_eq!(entry.source_type, "local");
     assert!(list(&folders)[0].managed());
     // Taken over, it has nothing to fetch, and can't be taken over twice.
-    let checked = check(&folders, &[], Checking::Report, "later").unwrap();
+    let checked = check(&folders, &[], Checking::Report, &"later".into()).unwrap();
     assert_eq!((checked.updates.len(), checked.unchecked.len()), (0, 0));
     assert!(matches!(
-        super::take_over(&folders, "bedrock", "now"),
+        super::take_over(&folders, "bedrock", &"now".into()),
         Err(SkillsError::AlreadyKept(_))
     ));
 }
@@ -361,7 +388,7 @@ fn taking_over_a_skill_never_removes_a_copy_holding_what_the_store_leaves_out() 
     fs::create_dir_all(home.join(".claude/skills/bedrock/.git")).unwrap();
     fs::write(home.join(".claude/skills/bedrock/.git/HEAD"), "ref").unwrap();
     std::os::unix::fs::symlink(&home, home.join(".cursor/skills/bedrock/home")).unwrap();
-    let taken = super::take_over(&folders, "bedrock", "now").unwrap();
+    let taken = super::take_over(&folders, "bedrock", &"now".into()).unwrap();
     assert_eq!(taken.linked, []);
     assert_eq!(taken.kept, [Client::ClaudeCode, Client::Cursor]);
     assert!(home.join(".claude/skills/bedrock/.git/HEAD").is_file());
@@ -383,7 +410,7 @@ fn taking_over_a_skill_keeps_a_copy_whose_line_endings_differ() {
         fs::create_dir_all(home.join(at)).unwrap();
         fs::write(home.join(at).join("SKILL.md"), body).unwrap();
     }
-    let taken = super::take_over(&folders, "bedrock", "now").unwrap();
+    let taken = super::take_over(&folders, "bedrock", &"now".into()).unwrap();
     assert_eq!(taken.linked, [Client::ClaudeCode]);
     assert_eq!(taken.kept, [Client::Cursor]);
 }
@@ -395,11 +422,18 @@ fn an_update_applies_only_what_was_listed() {
     let (repo, source) = repo("update-listed-repo", &["review", "plan"]);
     let preview = Preview::fetch(source).unwrap();
     let chosen = preview.choose(&["*".into()]).unwrap();
-    install(&folders, &preview, &chosen, &[Client::ClaudeCode], "then").unwrap();
+    install(
+        &folders,
+        &preview,
+        &chosen,
+        &[Client::ClaudeCode],
+        &"then".into(),
+    )
+    .unwrap();
     drop(preview);
     write_skill(&repo, "review", "Do it better.");
     commit(&repo);
-    let listed = check(&folders, &[], Checking::Report, "now")
+    let listed = check(&folders, &[], Checking::Report, &"now".into())
         .unwrap()
         .updates;
     // The source moves on again between the check and the update, and a skill is installed meanwhile.
@@ -408,9 +442,9 @@ fn an_update_applies_only_what_was_listed() {
     let mut lock = Lock::read(folders.lock());
     let mut other = lock.get("plan").unwrap();
     other.source = "elsewhere".into();
-    lock.set("meanwhile", &other, "now");
+    lock.set("meanwhile", &other, &"now".into());
     lock.write(folders.lock()).unwrap();
-    let applied = check(&folders, &[], Checking::Apply(listed), "now").unwrap();
+    let applied = check(&folders, &[], Checking::Apply(listed), &"now".into()).unwrap();
     assert_eq!(applied.updates, []);
     assert_eq!(applied.unchecked[0].0, "review");
     assert!(
@@ -420,10 +454,10 @@ fn an_update_applies_only_what_was_listed() {
         "nothing newer than was listed is put in place"
     );
     // Checked again, it's listed as it is now and applies, and the skill installed meanwhile keeps its entry.
-    let listed = check(&folders, &[], Checking::Report, "now")
+    let listed = check(&folders, &[], Checking::Report, &"now".into())
         .unwrap()
         .updates;
-    check(&folders, &[], Checking::Apply(listed), "now").unwrap();
+    check(&folders, &[], Checking::Apply(listed), &"now".into()).unwrap();
     assert!(
         fs::read_to_string(folders.store().join("review/SKILL.md"))
             .unwrap()
@@ -432,7 +466,7 @@ fn an_update_applies_only_what_was_listed() {
     assert!(Lock::read(folders.lock()).get("meanwhile").is_some());
     // Applying with nothing listed fetches nothing and changes nothing.
     assert_eq!(
-        check(&folders, &[], Checking::Apply(Vec::new()), "now").unwrap(),
+        check(&folders, &[], Checking::Apply(Vec::new()), &"now".into()).unwrap(),
         Default::default()
     );
 }
