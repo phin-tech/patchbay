@@ -1,6 +1,7 @@
 //! What a person has set in the Settings window, kept as a small TOML file. Every setting has a default, a file that's
 //! missing or can't be read gives the defaults, and a setting this version doesn't know is left alone.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -42,6 +43,10 @@ pub struct Settings {
     /// Whether the main window has the patch bay, a rack of the clients and servers with a cable between each client
     /// and the servers it's given, and opens on it.
     pub patch_bay: bool,
+    /// A skills folder chosen for a client in place of the one it usually reads, by the client's slug: a path, which
+    /// may start `~/`. Skills are linked there, by the app and `patchbay skills` alike.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub skills_folders: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -55,6 +60,7 @@ impl Default for Settings {
             beta_updates: crate::VERSION.contains("-beta"),
             hide_dock: true,
             patch_bay: true,
+            skills_folders: BTreeMap::new(),
         }
     }
 }
@@ -104,6 +110,7 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{Appearance, Settings, TEXT_SCALES, step_text_scale};
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
 
@@ -125,6 +132,7 @@ mod tests {
             beta_updates: true,
             hide_dock: false,
             patch_bay: false,
+            skills_folders: [("cursor".to_string(), "~/dotfiles/skills".to_string())].into(),
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
@@ -141,6 +149,7 @@ mod tests {
             beta_updates: false,
             hide_dock: true,
             patch_bay: true,
+            skills_folders: BTreeMap::new(),
         };
         let text = toml::to_string(&settings).unwrap();
         insta::assert_snapshot!(text, @r#"

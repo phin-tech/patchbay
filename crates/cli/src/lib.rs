@@ -164,7 +164,10 @@ impl Command {
             }
             // Skills need no gateway or Keychain, so they run here, without the runtime.
             Command::Skills(command) => {
-                let folders = patchbay_core::skills::Folders::from_env(user_home());
+                // The folders chosen in Settings, which the app links into too, so the two keep one set.
+                let settings = patchbay_core::Settings::load(&Home::from_env().settings());
+                let folders =
+                    patchbay_core::skills::Folders::from_env(user_home()).chosen_in(&settings);
                 let cwd = std::env::current_dir()?;
                 if let Err(error) = command.run(&folders, &cwd, out) {
                     writeln!(out, "patchbay: {error:#}")?;

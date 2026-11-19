@@ -436,3 +436,26 @@ fn an_update_applies_only_what_was_listed() {
         Default::default()
     );
 }
+
+#[test]
+fn a_skills_folder_chosen_in_settings_takes_a_clients_place() {
+    let home = folder("chosen-home");
+    let mut settings = crate::Settings::default();
+    settings
+        .skills_folders
+        .insert("cursor".into(), "~/dotfiles/cursor-skills".into());
+    settings.skills_folders.insert("nobody".into(), "/x".into());
+    let folders = Folders::new(&home).chosen_in(&settings);
+    assert_eq!(
+        folders.client(Client::Cursor),
+        Some(home.join("dotfiles/cursor-skills"))
+    );
+    assert_eq!(
+        folders.usual(Client::Cursor),
+        Some(home.join(".cursor/skills"))
+    );
+    assert_eq!(
+        folders.client(Client::GeminiCli),
+        Some(home.join(".gemini/skills"))
+    );
+}

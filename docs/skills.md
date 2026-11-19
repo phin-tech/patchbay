@@ -41,6 +41,10 @@ own. Tools that read `~/.agents/skills` themselves need no link.
 | opencode | `~/.config/opencode/skills` |
 | Codex, pi | read `~/.agents/skills` itself |
 
+A tool that reads its skills somewhere else gets that folder in **Settings ▸ Skills**: **Choose…** picks it, and **Use
+Usual** goes back. New skills are linked there, by the app and `patchbay skills` alike; ones linked already stay where
+they are.
+
 A new skill goes to every tool Patchbay finds on your Mac, or only the ones a pasted line names with `-a`. Tick or
 untick a tool on the skill's page to give it the skill or take it away.
 

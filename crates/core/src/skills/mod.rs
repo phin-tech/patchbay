@@ -63,6 +63,8 @@ pub struct Folders {
     /// `~/.config`, or `XDG_CONFIG_HOME`.
     config: PathBuf,
     lock: PathBuf,
+    /// Folders chosen in Settings in place of a client's own.
+    chosen: Vec<(Client, PathBuf)>,
 }
 
 impl Folders {
@@ -73,8 +75,27 @@ impl Folders {
             claude: home.join(".claude"),
             config: home.join(".config"),
             lock: home.join(".agents/.skill-lock.json"),
+            chosen: Vec::new(),
             home,
         }
+    }
+
+    /// These folders, with the skills folders `settings` chooses for clients in place of their own. A path starting
+    /// `~/` is under the home folder; a slug no client has is passed over.
+    pub fn chosen_in(mut self, settings: &crate::Settings) -> Folders {
+        self.chosen = settings
+            .skills_folders
+            .iter()
+            .filter_map(|(slug, path)| {
+                let client = Client::from_slug(slug)?;
+                let path = match path.strip_prefix("~/") {
+                    Some(rest) => self.home.join(rest),
+                    None => PathBuf::from(path),
+                };
+                Some((client, path))
+            })
+            .collect();
+        self
     }
 
     /// The folders under `home` the CLI would use, moved where the environment moves them.
@@ -113,6 +134,14 @@ impl Folders {
     /// The skills folder `client` reads, as the `skills` CLI has it; none for a client that has no skills folder
     /// or isn't known to read one.
     pub fn client(&self, client: Client) -> Option<PathBuf> {
+        if let Some((_, chosen)) = self.chosen.iter().find(|(chosen, _)| *chosen == client) {
+            return Some(chosen.clone());
+        }
+        self.usual(client)
+    }
+
+    /// The skills folder `client` reads unless Settings chooses another, as the `skills` CLI has it.
+    pub fn usual(&self, client: Client) -> Option<PathBuf> {
         match client {
             Client::ClaudeCode => Some(self.claude.join("skills")),
             Client::Codex | Client::Pi => Some(self.store()),
@@ -136,7 +165,7 @@ pub fn clients_with_skills() -> Vec<Client> {
     let folders = Folders::new("/");
     Client::ALL
         .into_iter()
-        .filter(|client| folders.client(*client).is_some())
+        .filter(|client| folders.usual(*client).is_some())
         .collect()
 }
 

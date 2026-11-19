@@ -5,11 +5,12 @@
 use std::path::{Path, PathBuf};
 
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, StyledExt as _, button::Button, h_flex, switch::Switch,
-    v_flex,
+    ActiveTheme as _, Disableable as _, StyledExt as _, button::Button,
+    button::ButtonVariants as _, h_flex, switch::Switch, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use patchbay_core::clients::Client;
 use patchbay_core::{Settings, step_text_scale};
 use rust_i18n::t;
 use typecase::settings::{Section, SettingsFrame};
@@ -107,6 +108,51 @@ pub fn set_hide_dock(on: bool, cx: &mut App) {
     change(cx, |settings| settings.hide_dock = on);
 }
 
+/// Links skills for `client` into `folder` from now on, or with none, into the folder it usually reads.
+pub fn set_skills_folder(client: Client, folder: Option<PathBuf>, cx: &mut App) {
+    change(cx, |settings| match folder {
+        Some(folder) => {
+            settings
+                .skills_folders
+                .insert(client.slug().to_string(), shown_path(&folder, &user_home()));
+        }
+        None => {
+            settings.skills_folders.remove(client.slug());
+        }
+    });
+}
+
+/// `path`, with `home` as `~`, as the settings file keeps it and Settings shows it.
+fn shown_path(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+fn user_home() -> PathBuf {
+    std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
+}
+
+/// Asks for a folder to link `client`'s skills into.
+fn choose_skills_folder(client: Client, cx: &mut App) {
+    let chosen = cx.prompt_for_paths(PathPromptOptions {
+        files: false,
+        directories: true,
+        multiple: false,
+        prompt: Some(t!("Choose").into_owned().into()),
+    });
+    cx.spawn(async move |cx| {
+        let Ok(Ok(Some(paths))) = chosen.await else {
+            return;
+        };
+        if let Some(folder) = paths.into_iter().next() {
+            cx.update(|cx| set_skills_folder(client, Some(folder), cx));
+        }
+    })
+    .detach();
+}
+
 /// Whether the main window has the patch bay, and opens on it.
 pub fn set_patch_bay(on: bool, cx: &mut App) {
     change(cx, |settings| settings.patch_bay = on);
@@ -170,6 +216,7 @@ fn sections() -> Vec<Section> {
     vec![
         Section::new(t!("General").into_owned(), |_, cx| general(cx)).keywords(["text", "size"]),
         Section::appearance(),
+        Section::new(t!("Skills").into_owned(), |_, cx| skills(cx)).keywords(["folders", "agents"]),
         Section::new(t!("Updates").into_owned(), |_, cx| updates(cx)).keywords(["beta", "sparkle"]),
     ]
 }
@@ -182,7 +229,19 @@ pub struct SettingsWindow {
 
 impl SettingsWindow {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let frame = cx.new(|cx| SettingsFrame::new(sections(), window, cx));
+        let frame = cx.new(|cx| {
+            #[cfg_attr(
+                not(feature = "screenshot"),
+                expect(unused_mut, reason = "only shots open on a section")
+            )]
+            let mut frame = SettingsFrame::new(sections(), window, cx);
+            // A shot can't click in this window, since its keys go to the main one, so it names the section to show.
+            #[cfg(feature = "screenshot")]
+            if let Ok(section) = std::env::var("PATCHBAY_SETTINGS_SECTION") {
+                frame.show(&section, cx);
+            }
+            frame
+        });
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         Self { frame, focus }
@@ -286,6 +345,67 @@ fn general(cx: &mut App) -> Div {
                         .child(format!("{:.0}%", settings.text_scale * 100.)),
                 ),
         ))
+}
+
+/// Each client's skills folder, which Patchbay links skills into, and a folder of the person's choosing in its place.
+fn skills(cx: &mut App) -> Div {
+    let muted = cx.theme().muted_foreground;
+    let settings = current(cx);
+    let folders = crate::view::skill_folders(cx);
+    let rows = patchbay_core::skills::clients_with_skills()
+        .into_iter()
+        .map(|client| {
+            let chosen = settings.skills_folders.contains_key(client.slug());
+            let folder = folders
+                .client(client)
+                .map(|folder| shown_path(&folder, folders.home()))
+                .unwrap_or_default();
+            let slug = client.slug();
+            h_flex()
+                .gap_3()
+                .items_center()
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_sm().child(client.name()))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(muted)
+                                .truncate()
+                                .child(if chosen {
+                                    folder
+                                } else {
+                                    t!("%{folder}, as usual", folder = folder).into_owned()
+                                }),
+                        ),
+                )
+                .when(chosen, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("skills-usual-{slug}")))
+                            .ghost()
+                            .label(t!("Use Usual").into_owned())
+                            .on_click(move |_, _, cx| set_skills_folder(client, None, cx)),
+                    )
+                })
+                .child(
+                    Button::new(SharedString::from(format!("skills-choose-{slug}")))
+                        .outline()
+                        .label(t!("Choose…").into_owned())
+                        .on_click(move |_, _, cx| choose_skills_folder(client, cx)),
+                )
+        });
+    v_flex()
+        .p_4()
+        .gap_3()
+        .child(
+            div().text_sm().text_color(muted).child(
+                t!("Skills are kept once, in ~/.agents/skills, and linked into each tool's own folder. Choose another for a tool that reads its skills elsewhere. Skills linked already stay where they are, and patchbay skills in a terminal uses the same folders.")
+                    .into_owned(),
+            ),
+        )
+        .children(rows)
 }
 
 fn updates(cx: &mut App) -> Div {

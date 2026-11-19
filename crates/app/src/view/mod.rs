@@ -43,6 +43,7 @@ mod skills;
 
 pub use editor::Editing;
 use editor::Editor;
+pub(crate) use skills::skill_folders;
 
 /// A Typecase card over the window, which holds the keyboard until it's done.
 enum Card {

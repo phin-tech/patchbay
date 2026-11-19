@@ -55,15 +55,17 @@ pub struct SkillsState {
     _task: Option<Task<()>>,
 }
 
-/// Where skills go: the person's own folders when the app runs for real, the stand-in home otherwise.
-pub(super) fn skill_folders(cx: &App) -> Folders {
+/// Where skills go: the person's own folders when the app runs for real, the stand-in home otherwise, with the
+/// folders chosen in Settings.
+pub(crate) fn skill_folders(cx: &App) -> Folders {
     let home = client_home(cx);
     let real = std::env::var_os("HOME").is_some_and(|own| Path::new(&own) == home);
-    if real {
+    let folders = if real {
         Folders::from_env(home)
     } else {
         Folders::new(home)
-    }
+    };
+    folders.chosen_in(&crate::settings::current(cx))
 }
 
 impl MainView {
