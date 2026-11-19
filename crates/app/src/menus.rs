@@ -70,6 +70,7 @@ pub fn menus() -> Vec<Menu> {
         menu(
             t!("View"),
             vec![
+                run(t!("Patch Bay"), "view.patch-bay"),
                 run(t!("Servers"), "view.servers"),
                 run(t!("Clients"), "view.clients"),
                 run(t!("Skills"), "view.skills"),

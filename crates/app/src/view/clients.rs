@@ -529,6 +529,11 @@ impl MainView {
         let mut choice = choices.get(client);
         let moved = choice.profile != profile;
         choice.profile = profile;
+        // The row follows at once, not when the gateway has read the manifest again, so a second change made in
+        // the meantime (a quick second Cable on the patch bay) starts from this one.
+        if let Some(row) = self.clients.iter_mut().find(|row| row.client == client) {
+            row.choice = choice.clone();
+        }
         choices.set(client, choice);
         if let Err(error) = choices.save(&home) {
             Toast::error(t!(

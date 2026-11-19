@@ -19,10 +19,12 @@ fn open<'a>(
     cx: &'a mut TestAppContext,
     manifest: &str,
 ) -> (Entity<MainView>, &'a mut VisualTestContext) {
+    // A folder for each window opened, since tests run at once and two may have the same manifest.
+    static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let root = std::env::temp_dir().join(format!(
         "patchbay-view-test-{}-{}",
         std::process::id(),
-        manifest.len()
+        OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
@@ -300,12 +302,17 @@ fn a_key_typed_into_a_servers_form_is_kept_in_the_keychain_not_the_manifest(
 }
 
 #[gpui_kit::test]
-fn the_sidebar_switches_between_servers_and_clients(cx: &mut TestAppContext) {
+fn the_sidebar_switches_between_the_patch_bay_servers_clients_and_skills(cx: &mut TestAppContext) {
     let (view, cx) = open(cx, "");
-    cx.simulate_keystrokes("cmd-2");
+    view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::PatchBay));
+    cx.simulate_keystrokes("cmd-3");
     view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::Clients));
-    cx.simulate_keystrokes("cmd-1");
+    cx.simulate_keystrokes("cmd-2");
     view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::Servers));
+    cx.simulate_keystrokes("cmd-1");
+    view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::PatchBay));
+    cx.simulate_keystrokes("cmd-4");
+    view.read_with(cx, |view, _| assert_eq!(view.place, super::Place::Skills));
 }
 
 #[gpui_kit::test]
@@ -520,4 +527,96 @@ fn a_clients_own_servers_are_taken_over_into_your_manifest_and_out_of_its_config
     );
     assert!(Client::Cursor.own_servers(&home).is_empty());
     assert_eq!(Client::Cursor.entries_in(&home), ["patchbay"]);
+}
+
+/// The servers `client` is given now, as the patch bay shows them plugged in.
+fn plugged(view: &Entity<MainView>, client: Client, cx: &mut VisualTestContext) -> Vec<String> {
+    view.read_with(cx, |view, _| {
+        let row = view
+            .clients
+            .iter()
+            .find(|row| row.client == client)
+            .unwrap();
+        let mut servers = view.given(row);
+        servers.sort();
+        servers
+    })
+}
+
+/// Presses at `from`, moves to `to` on the way, and lets go there.
+fn drag(
+    from: gpui_kit::Point<gpui_kit::Pixels>,
+    to: gpui_kit::Point<gpui_kit::Pixels>,
+    cx: &mut VisualTestContext,
+) {
+    use gpui_kit::{Modifiers, MouseButton};
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+    let middle = gpui_kit::point((from.x + to.x) / 2., (from.y + to.y) / 2.);
+    cx.simulate_mouse_move(middle, Some(MouseButton::Left), Modifiers::default());
+    cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+    cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+}
+
+const TWO_SERVERS: &str = "[servers.alpha]\nurl = \"http://127.0.0.1:9/a\"\n\n[servers.beta]\nurl = \"http://127.0.0.1:9/b\"\n";
+
+#[gpui_kit::test]
+fn dragging_a_cable_from_a_servers_jack_to_a_client_gives_that_client_the_server(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, TWO_SERVERS);
+    view.update_in(cx, |view, window, cx| {
+        view.give(Client::Codex, super::Given::Only(Vec::new()), window, cx);
+    });
+    cx.run_until_parked();
+    assert!(plugged(&view, Client::Codex, cx).is_empty());
+    // Beta's jack for Pi already holds a Cable; Codex's for beta is empty, so that's where the new one starts.
+    let (from, to) = view.read_with(cx, |view, _| {
+        (
+            view.jack_on_screen(false, Client::Codex, "beta"),
+            view.client_on_screen(Client::Codex),
+        )
+    });
+    drag(from, to, cx);
+    assert_eq!(plugged(&view, Client::Codex, cx), ["beta"]);
+}
+
+#[gpui_kit::test]
+fn a_plug_dragged_to_another_client_moves_the_server_to_it(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, TWO_SERVERS);
+    view.update_in(cx, |view, window, cx| {
+        view.give(Client::Codex, super::Given::Only(Vec::new()), window, cx);
+    });
+    cx.run_until_parked();
+    let (from, to) = view.read_with(cx, |view, _| {
+        (
+            view.jack_on_screen(true, Client::Pi, "alpha"),
+            view.client_on_screen(Client::Codex),
+        )
+    });
+    drag(from, to, cx);
+    assert_eq!(plugged(&view, Client::Pi, cx), ["beta"]);
+    assert_eq!(plugged(&view, Client::Codex, cx), ["alpha"]);
+}
+
+#[gpui_kit::test]
+fn a_plug_let_go_over_nothing_is_pulled_out_and_a_click_puts_it_back(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx, TWO_SERVERS);
+    cx.run_until_parked();
+    let (jack, gap) = view.read_with(cx, |view, _| {
+        (
+            view.jack_on_screen(false, Client::Pi, "alpha"),
+            view.gap_on_screen(),
+        )
+    });
+    drag(jack, gap, cx);
+    assert_eq!(plugged(&view, Client::Pi, cx), ["beta"]);
+    cx.simulate_click(jack, gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(plugged(&view, Client::Pi, cx), ["alpha", "beta"]);
+    // Two clicks in a row each count, rather than the second reading what was there before the first.
+    cx.simulate_click(jack, gpui_kit::Modifiers::default());
+    cx.simulate_click(jack, gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(plugged(&view, Client::Pi, cx), ["alpha", "beta"]);
 }

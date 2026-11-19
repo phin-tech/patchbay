@@ -34,6 +34,13 @@ _Avoid_: credential, env var
 
 **Bridge**: `patchbay bridge`, the gateway over stdio for a client that only runs commands.
 
+**Patch bay**: the main window's rack, a module for each client on the left and each server on the right, where a
+client is given servers by patching Cables. Settings can turn it off.
+
+**Cable**: a lead on the patch bay from a client's jack to a server's, one for each server the client is given. It
+says what the client gets, not whether it's connected; that's the client's power switch.
+_Avoid_: wire, link, connection
+
 **Profile**: a set of servers exposed together at `/mcp/<profile>`; `default` is every enabled server.
 
 **Skill**: a folder with a `SKILL.md` (frontmatter `name` and `description`) that a client reads as instructions.

@@ -42,6 +42,7 @@ pub const COMMANDS: &[&str] = &[
     "view.clients",
     "view.dark",
     "view.filter",
+    "view.patch-bay",
     "view.servers",
     "view.skills",
     "view.smaller-text",

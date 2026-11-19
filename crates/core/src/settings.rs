@@ -39,6 +39,9 @@ pub struct Settings {
     pub beta_updates: bool,
     /// Whether Patchbay leaves the Dock while none of its windows is open, keeping only its menu bar icon.
     pub hide_dock: bool,
+    /// Whether the main window has the patch bay, a rack of the clients and servers with a cable between each client
+    /// and the servers it's given, and opens on it.
+    pub patch_bay: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +54,7 @@ impl Default for Settings {
             hotkey: "ctrl+alt+super+Space".to_string(),
             beta_updates: crate::VERSION.contains("-beta"),
             hide_dock: true,
+            patch_bay: true,
         }
     }
 }
@@ -120,6 +124,7 @@ mod tests {
             hotkey: "ctrl+alt+super+KeyN".to_string(),
             beta_updates: true,
             hide_dock: false,
+            patch_bay: false,
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
@@ -135,6 +140,7 @@ mod tests {
             hotkey: "ctrl+alt+super+Space".to_string(),
             beta_updates: false,
             hide_dock: true,
+            patch_bay: true,
         };
         let text = toml::to_string(&settings).unwrap();
         insta::assert_snapshot!(text, @r#"
@@ -145,6 +151,7 @@ mod tests {
         hotkey = "ctrl+alt+super+Space"
         beta_updates = false
         hide_dock = true
+        patch_bay = true
         "#);
     }
 

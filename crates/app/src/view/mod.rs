@@ -1,6 +1,6 @@
-//! The main window, in Typecase's shell: a sidebar of places (Servers, Clients, Skills) on the window's colour, then a panel
-//! listing what's in the place chosen, and a panel with the one chosen. The cards over the window (the palette and
-//! Keys) are Typecase's.
+//! The main window, in Typecase's shell: a sidebar of places (Patch Bay, Servers, Clients, Skills) on the window's
+//! colour, then the patch bay, or a panel listing what's in the place chosen and a panel with the one chosen. The
+//! cards over the window (the palette and Keys) are Typecase's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -34,6 +34,7 @@ mod clients;
 use clients::Given;
 mod editor;
 mod form;
+mod rack;
 mod servers;
 mod share;
 mod skills;
@@ -50,6 +51,8 @@ enum Card {
 /// The places in the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
+    /// The patch bay, unless it's turned off in Settings.
+    PatchBay,
     Servers,
     Clients,
     Skills,
@@ -150,6 +153,8 @@ pub struct MainView {
     pub taking_over: Option<(Client, Vec<String>)>,
     /// A field at the top of each place's list, narrowing it to what matches.
     filters: Filters,
+    /// The patch bay: its Cables, hanging from frame to frame, and any being dragged.
+    rack: rack::Rack,
     _fields: Vec<Subscription>,
     _filters: Vec<Subscription>,
     _watch: Task<()>,
@@ -209,7 +214,11 @@ impl MainView {
         let mut view = Self {
             focus,
             card: None,
-            place: Place::Servers,
+            place: if crate::settings::current(cx).patch_bay {
+                Place::PatchBay
+            } else {
+                Place::Servers
+            },
             servers: Vec::new(),
             clients: Vec::new(),
             server: None,
@@ -225,6 +234,7 @@ impl MainView {
             replacing: BTreeSet::new(),
             taking_over: None,
             filters,
+            rack: rack::Rack::default(),
             _fields: Vec::new(),
             _filters: filter_subscriptions,
             _watch: watch,
@@ -278,6 +288,7 @@ impl MainView {
             "servers.reload" => self.reload(window, cx),
             "servers.edit" => edit_manifest(cx),
             "gateway.copy-url" => self.copy_url(window, cx),
+            "view.patch-bay" => self.show(Place::PatchBay, cx),
             "view.servers" => self.show(Place::Servers, cx),
             "view.clients" => self.show(Place::Clients, cx),
             "view.skills" => self.show(Place::Skills, cx),
@@ -309,7 +320,16 @@ impl MainView {
 
     pub fn show(&mut self, place: Place, cx: &mut Context<Self>) {
         self.place = place;
+        self.rack.stop_dragging();
         cx.notify();
+    }
+
+    /// The place shown: the one chosen, or Servers in place of the patch bay while that's turned off.
+    pub fn shown(&self, cx: &App) -> Place {
+        match self.place {
+            Place::PatchBay if !crate::settings::current(cx).patch_bay => Place::Servers,
+            place => place,
+        }
     }
 
     fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -379,8 +399,15 @@ impl MainView {
                 )
             })
             .count();
+        let shown = self.shown(cx);
+        let patch_bay = crate::settings::current(cx).patch_bay;
+        let cables: usize = self
+            .rack_clients()
+            .iter()
+            .map(|row| self.given(row).len())
+            .sum();
         let place = |place: Place, label: String, count: usize, cx: &Context<Self>| {
-            shell::sidebar_row(self.place == place, cx)
+            shell::sidebar_row(shown == place, cx)
                 .id(SharedString::from(format!("place-{place:?}")))
                 .child(label)
                 .child(shell::count(count, cx))
@@ -407,6 +434,14 @@ impl MainView {
                     .gap_0p5()
                     .px_2()
                     .pt_1()
+                    .when(patch_bay, |this| {
+                        this.child(place(
+                            Place::PatchBay,
+                            t!("Patch Bay").into_owned(),
+                            cables,
+                            cx,
+                        ))
+                    })
                     .child(place(
                         Place::Servers,
                         t!("Servers").into_owned(),
@@ -506,17 +541,21 @@ struct Filters {
 }
 
 impl MainView {
-    fn filter_for(&self, place: Place) -> &Entity<InputState> {
+    /// The filter over `place`'s list; the patch bay has no list, and so none.
+    fn filter_for(&self, place: Place) -> Option<&Entity<InputState>> {
         match place {
-            Place::Servers => &self.filters.servers,
-            Place::Clients => &self.filters.clients,
-            Place::Skills => &self.filters.skills,
+            Place::PatchBay => None,
+            Place::Servers => Some(&self.filters.servers),
+            Place::Clients => Some(&self.filters.clients),
+            Place::Skills => Some(&self.filters.skills),
         }
     }
 
     /// What's typed in `place`'s filter.
     fn filter_text(&self, place: Place, cx: &App) -> String {
-        self.filter_for(place).read(cx).value().trim().to_string()
+        self.filter_for(place)
+            .map(|filter| filter.read(cx).value().trim().to_string())
+            .unwrap_or_default()
     }
 
     /// The filter field, under a list's heading.
@@ -527,19 +566,17 @@ impl MainView {
             .py_1p5()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(
-                Input::new(self.filter_for(place))
-                    .small()
-                    .h(rems(24. / 13.)),
+            .children(
+                self.filter_for(place)
+                    .map(|filter| Input::new(filter).small().h(rems(24. / 13.))),
             )
     }
 
     /// Puts the keyboard in the filter of the place shown.
     fn focus_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.filter_for(self.place)
-            .read(cx)
-            .focus_handle(cx)
-            .focus(window, cx);
+        if let Some(filter) = self.filter_for(self.shown(cx)) {
+            filter.read(cx).focus_handle(cx).focus(window, cx);
+        }
     }
 }
 
@@ -562,10 +599,29 @@ fn hint(text: impl Into<SharedString>, cx: &App) -> Div {
 
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (list, detail) = match self.place {
-            Place::Servers => (self.server_list(cx), self.server_detail(cx)),
-            Place::Clients => (self.client_list(cx), self.client_detail(cx)),
-            Place::Skills => (self.skill_list(cx), self.skill_detail(cx)),
+        let shown = self.shown(cx);
+        let columns = shell::columns(Lead::Sidebar).child(self.sidebar(cx));
+        let columns = match shown {
+            Place::PatchBay => columns.child(
+                shell::panel(false, cx)
+                    .flex_1()
+                    .child(self.patch_bay(window, cx)),
+            ),
+            Place::Servers | Place::Clients | Place::Skills => {
+                let (list, detail) = match shown {
+                    Place::Clients => (self.client_list(cx), self.client_detail(cx)),
+                    Place::Skills => (self.skill_list(cx), self.skill_detail(cx)),
+                    _ => (self.server_list(cx), self.server_detail(cx)),
+                };
+                columns
+                    .child(
+                        shell::panel(false, cx)
+                            .flex_none()
+                            .w(rems(LIST_WIDTH))
+                            .child(list),
+                    )
+                    .child(shell::panel(false, cx).flex_1().child(detail))
+            }
         };
         shell::window(cx)
             .relative()
@@ -581,17 +637,7 @@ impl Render for MainView {
                 this.run(action.name, window, cx);
             }))
             .child(shell::title_bar(cx).child("Patchbay"))
-            .child(
-                shell::columns(Lead::Sidebar)
-                    .child(self.sidebar(cx))
-                    .child(
-                        shell::panel(false, cx)
-                            .flex_none()
-                            .w(rems(LIST_WIDTH))
-                            .child(list),
-                    )
-                    .child(shell::panel(false, cx).flex_1().child(detail)),
-            )
+            .child(columns)
             // Last, so it's over everything; a click outside it closes it.
             .when_some(self.card.as_ref(), |this, card| {
                 let card = match card {

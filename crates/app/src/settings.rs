@@ -107,6 +107,11 @@ pub fn set_hide_dock(on: bool, cx: &mut App) {
     change(cx, |settings| settings.hide_dock = on);
 }
 
+/// Whether the main window has the patch bay, and opens on it.
+pub fn set_patch_bay(on: bool, cx: &mut App) {
+    change(cx, |settings| settings.patch_bay = on);
+}
+
 pub fn set_beta_updates(on: bool, cx: &mut App) {
     update::set_beta(on);
     change(cx, |settings| settings.beta_updates = on);
@@ -238,6 +243,12 @@ fn general(cx: &mut App) -> Div {
                         .label(t!("Leave the Dock while no window is open").into_owned())
                         .checked(settings.hide_dock)
                         .on_click(|on, _, cx| set_hide_dock(*on, cx)),
+                )
+                .child(
+                    Switch::new("patch-bay")
+                        .label(t!("Show the patch bay, and open on it").into_owned())
+                        .checked(settings.patch_bay)
+                        .on_click(|on, _, cx| set_patch_bay(*on, cx)),
                 )
                 .when(login_item::needs_approval(), |this| {
                     this.child(
