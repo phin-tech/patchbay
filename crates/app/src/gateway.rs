@@ -13,6 +13,9 @@ pub struct Running {
     /// The home folder whose AI clients the window reads and connects: the person's own when the app runs for real,
     /// a stand-in in Patchbay's folder for tests and captures, so they never touch a real client's config.
     pub client_home: std::path::PathBuf,
+    /// The skills folders under `client_home`, as the environment moves them for the real one; Settings may choose
+    /// others (`view::skill_folders`).
+    pub skill_folders: patchbay_core::skills::Folders,
     /// Whether work is started on the gateway's own threads: not in tests, which GPUI runs on one thread and holds
     /// to doing everything there.
     pub background: bool,
@@ -165,8 +168,14 @@ pub fn init_with(home: Home, secrets: Secrets, cx: &mut App) {
         let starting = gateway.clone();
         runtime.spawn(async move { starting.start_all().await });
     }
+    let skill_folders = if real {
+        patchbay_core::skills::Folders::from_env(&client_home)
+    } else {
+        patchbay_core::skills::Folders::new(&client_home)
+    };
     cx.set_global(Running {
         gateway,
+        skill_folders,
         client_home,
         background: real || cfg!(feature = "screenshot"),
         runtime,

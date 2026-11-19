@@ -24,7 +24,7 @@ pub const USAGE: &str = "  skills add <source> [--skill <name>…|'*'] [--agent 
   skills list               every skill, who keeps it and which clients have it
   skills remove <name>…     take a skill out of every client and the store
   skills check              which skills their sources have changed
-  skills update [name…]     fetch and apply those changes";
+  skills update [name…]     list those changes, then apply them";
 
 /// Reads what follows `skills`.
 pub fn parse(args: &[&str]) -> Result<Skills, String> {
@@ -61,7 +61,7 @@ impl Skills {
                 }
             }
             Skills::Check => {
-                let checked = skills::check(folders, &[], Checking::Report, &skills::now())?;
+                let checked = skills::check(folders, &[], Checking::Report, &skills::Stamp::now())?;
                 for update in &checked.updates {
                     writeln!(
                         out,
@@ -81,20 +81,35 @@ impl Skills {
                 }
             }
             Skills::Update(names) => {
-                let checked = skills::check(folders, &names, Checking::Apply, &skills::now())?;
-                for update in &checked.updates {
+                // What changes is listed before it's put in place, and only what was listed is.
+                let listed =
+                    skills::check(folders, &names, Checking::Report, &skills::Stamp::now())?;
+                for update in &listed.updates {
                     writeln!(
                         out,
-                        "Updated {}: {}",
+                        "{} ({}): {}",
                         update.name,
+                        update.source,
                         describe(&update.changes)
                     )?;
                 }
-                for (name, why) in &checked.unchecked {
-                    writeln!(out, "{name}: not checked, {why}")?;
-                }
-                if checked.updates.is_empty() {
+                let mut unchecked = listed.unchecked;
+                if listed.updates.is_empty() {
                     writeln!(out, "Every skill is up to date.")?;
+                } else {
+                    let applied = skills::check(
+                        folders,
+                        &names,
+                        Checking::Apply(listed.updates),
+                        &skills::Stamp::now(),
+                    )?;
+                    for update in &applied.updates {
+                        writeln!(out, "Updated {}.", update.name)?;
+                    }
+                    unchecked.extend(applied.unchecked);
+                }
+                for (name, why) in &unchecked {
+                    writeln!(out, "{name}: not checked, {why}")?;
                 }
             }
         }
@@ -137,7 +152,7 @@ fn add(
         preview.found.iter().collect()
     };
     let clients = request.clients_for(folders);
-    let installed = skills::install(folders, &preview, &chosen, &clients, &skills::now())?;
+    let installed = skills::install(folders, &preview, &chosen, &clients, &skills::Stamp::now())?;
     for skill in installed {
         let names: Vec<&str> = skill.linked.iter().map(|client| client.name()).collect();
         writeln!(

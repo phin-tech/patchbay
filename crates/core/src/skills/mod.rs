@@ -44,13 +44,21 @@ pub enum SkillsError {
     ReadsStore(String),
     #[error("{0} can't be read, so it's left as it is: move it aside and try again")]
     UnreadableLock(String),
-    #[error("{0}")]
-    Files(String),
+    /// A file or folder couldn't be read or written: what went wrong, by its kind for a caller to match on, and as it
+    /// was said.
+    #[error("{message}")]
+    Files {
+        kind: std::io::ErrorKind,
+        message: String,
+    },
 }
 
 impl From<std::io::Error> for SkillsError {
     fn from(error: std::io::Error) -> SkillsError {
-        SkillsError::Files(error.to_string())
+        SkillsError::Files {
+            kind: error.kind(),
+            message: error.to_string(),
+        }
     }
 }
 
@@ -63,6 +71,8 @@ pub struct Folders {
     /// `~/.config`, or `XDG_CONFIG_HOME`.
     config: PathBuf,
     lock: PathBuf,
+    /// Folders chosen in Settings in place of a client's own.
+    chosen: Vec<(Client, PathBuf)>,
 }
 
 impl Folders {
@@ -73,8 +83,27 @@ impl Folders {
             claude: home.join(".claude"),
             config: home.join(".config"),
             lock: home.join(".agents/.skill-lock.json"),
+            chosen: Vec::new(),
             home,
         }
+    }
+
+    /// These folders, with the skills folders `settings` chooses for clients in place of their own. A path starting
+    /// `~/` is under the home folder; a slug no client has is passed over.
+    pub fn chosen_in(mut self, settings: &crate::Settings) -> Folders {
+        self.chosen = settings
+            .skills_folders
+            .iter()
+            .filter_map(|(slug, path)| {
+                let client = Client::from_slug(slug)?;
+                let path = match path.strip_prefix("~/") {
+                    Some(rest) => self.home.join(rest),
+                    None => PathBuf::from(path),
+                };
+                Some((client, path))
+            })
+            .collect();
+        self
     }
 
     /// The folders under `home` the CLI would use, moved where the environment moves them.
@@ -113,6 +142,14 @@ impl Folders {
     /// The skills folder `client` reads, as the `skills` CLI has it; none for a client that has no skills folder
     /// or isn't known to read one.
     pub fn client(&self, client: Client) -> Option<PathBuf> {
+        if let Some((_, chosen)) = self.chosen.iter().find(|(chosen, _)| *chosen == client) {
+            return Some(chosen.clone());
+        }
+        self.usual(client)
+    }
+
+    /// The skills folder `client` reads unless Settings chooses another, as the `skills` CLI has it.
+    pub fn usual(&self, client: Client) -> Option<PathBuf> {
         match client {
             Client::ClaudeCode => Some(self.claude.join("skills")),
             Client::Codex | Client::Pi => Some(self.store()),
@@ -136,7 +173,7 @@ pub fn clients_with_skills() -> Vec<Client> {
     let folders = Folders::new("/");
     Client::ALL
         .into_iter()
-        .filter(|client| folders.client(*client).is_some())
+        .filter(|client| folders.usual(*client).is_some())
         .collect()
 }
 
@@ -169,11 +206,30 @@ pub fn folder_name(name: &str) -> String {
     }
 }
 
-/// The time as the lock writes it: `2026-11-19T10:00:00.000Z`.
-pub fn now() -> String {
-    jiff::Timestamp::now()
-        .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
-        .to_string()
+/// A time as the lock records it, in `installedAt` and `updatedAt`: UTC to the millisecond, as the `skills` CLI writes
+/// it, `2026-11-19T10:00:00.000Z`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp(String);
+
+impl Stamp {
+    pub fn now() -> Stamp {
+        Stamp(
+            jiff::Timestamp::now()
+                .strftime("%Y-%m-%dT%H:%M:%S%.3fZ")
+                .to_string(),
+        )
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// One as written, as tests give them.
+impl From<&str> for Stamp {
+    fn from(text: &str) -> Stamp {
+        Stamp(text.to_string())
+    }
 }
 
 /// A source fetched and looked through, its files kept until it's dropped.
@@ -187,7 +243,7 @@ impl Preview {
     /// Fetches `source` and finds its skills.
     pub fn fetch(source: Source) -> Result<Preview, SkillsError> {
         let fetched = fetch::fetch(&source)?;
-        let found = discover::discover(&fetched.root, source.subpath.as_deref());
+        let found = discover::discover(&fetched.root, source.subpath.as_deref(), fetched.links());
         if found.is_empty() {
             return Err(SkillsError::NoSkills(source.lock_source()));
         }
@@ -275,7 +331,7 @@ pub fn install(
     preview: &Preview,
     chosen: &[&Found],
     clients: &[Client],
-    now: &str,
+    now: &Stamp,
 ) -> Result<Vec<Installed>, SkillsError> {
     let mut lock = read_lock(folders)?;
     // Every skill is checked before any is copied, so a refusal leaves nothing half done.
@@ -327,11 +383,26 @@ fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+/// Whether the skill at `at` can give way to a link to `store` with nothing lost. The hash the CLI uses isn't enough:
+/// it leaves out `.git` and `metadata.json` and reads CRLF as LF, so a git checkout or a copy with other line endings
+/// would hash the same and be removed. Every byte has to match, and nothing in `at` may be one the copy leaves out.
+fn same_as_store(at: &Path, store: &Path) -> bool {
+    let files = |folder: &Path| -> std::io::Result<Vec<(String, Vec<u8>)>> {
+        let mut files = Vec::new();
+        hash::collect_files(folder, &fs::canonicalize(folder)?, &mut files)?;
+        files.sort();
+        Ok(files)
+    };
+    hash::copies_whole(at).unwrap_or(false)
+        && matches!((files(at), files(store)), (Ok(ours), Ok(kept)) if ours == kept)
+}
+
 /// Copies the skill at `from` to `to` beside it first, then puts it in place, so a failure leaves the old one.
 fn copy_into_place(from: &Path, to: &Path) -> Result<(), SkillsError> {
-    let parent = to
-        .parent()
-        .ok_or_else(|| SkillsError::Files("no folder".into()))?;
+    let parent = to.parent().ok_or_else(|| SkillsError::Files {
+        kind: std::io::ErrorKind::InvalidInput,
+        message: format!("{} has no folder to go in", to.display()),
+    })?;
     fs::create_dir_all(parent)?;
     let name = to
         .file_name()
@@ -466,7 +537,7 @@ pub struct TakenOver {
 /// Puts a skill of the person's own in Patchbay's care: copied into the store if it isn't there, recorded in the lock
 /// as a skill from this Mac (which the `skills` CLI never fetches or updates), and each client's copy replaced by a
 /// link to the store, only where its files are the same. Nothing that differs is replaced, so nothing is lost.
-pub fn take_over(folders: &Folders, folder: &str, now: &str) -> Result<TakenOver, SkillsError> {
+pub fn take_over(folders: &Folders, folder: &str, now: &Stamp) -> Result<TakenOver, SkillsError> {
     let mut lock = read_lock(folders)?;
     if let Some(name) = lock.name_for_folder(folder) {
         return Err(SkillsError::AlreadyKept(name));
@@ -504,7 +575,7 @@ pub fn take_over(folders: &Folders, folder: &str, now: &str) -> Result<TakenOver
             continue;
         }
         let own_folder = fs::symlink_metadata(&at).is_ok_and(|meta| meta.is_dir());
-        if own_folder && folder_hash(&at).ok().as_deref() == Some(kept_hash.as_str()) {
+        if own_folder && same_as_store(&at, &store) {
             fs::remove_dir_all(&at)?;
             let parent = at.parent().unwrap_or(&at);
             let real = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
@@ -752,6 +823,8 @@ pub struct Update {
     pub source: String,
     /// What would change in its folder, file by file.
     pub changes: Vec<Change>,
+    /// The hash of the skill as it was found, so applying it puts in place what was listed and nothing newer.
+    pub hash: String,
 }
 
 /// What [`check`] found: the updates, and the skills it couldn't check and why.
@@ -762,12 +835,13 @@ pub struct Checked {
 }
 
 /// What [`check`] does with a change it finds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Checking {
     /// Says what would change.
     Report,
-    /// Puts the change in place and records it.
-    Apply,
+    /// Puts in place the updates a report listed, and only those: one whose source has moved on again since is left,
+    /// and said so, since what it would put in place is no longer what was listed.
+    Apply(Vec<Update>),
 }
 
 /// The skills in the lock from one source at one ref, so they share one fetch.
@@ -779,11 +853,25 @@ pub fn check(
     folders: &Folders,
     names: &[String],
     checking: Checking,
-    now: &str,
+    now: &Stamp,
 ) -> Result<Checked, SkillsError> {
-    let apply = checking == Checking::Apply;
-    let mut lock = read_lock(folders)?;
-    let wanted: Vec<String> = names.iter().map(|name| folder_name(name)).collect();
+    let listed = match &checking {
+        Checking::Report => None,
+        Checking::Apply(updates) => Some(updates),
+    };
+    let lock = read_lock(folders)?;
+    let mut wanted: Vec<String> = names.iter().map(|name| folder_name(name)).collect();
+    if let Some(listed) = listed {
+        let named: Vec<String> = listed
+            .iter()
+            .map(|update| folder_name(&update.name))
+            .filter(|folder| wanted.is_empty() || wanted.contains(folder))
+            .collect();
+        if named.is_empty() {
+            return Ok(Checked::default());
+        }
+        wanted = named;
+    }
     let mut by_source: BySource = Vec::new();
     let mut checked = Checked::default();
     for name in lock.names() {
@@ -848,7 +936,14 @@ pub fn check(
                 .unwrap_or(&skill_path)
                 .trim_end_matches('/');
             let from = fetched.root.join(folder);
-            if !from.join("SKILL.md").is_file() {
+            // An update is held to the source's folder as discovery is: a link in a repository now could point anywhere.
+            let inside = match fetched.links() {
+                discover::Links::StayInside => {
+                    fs::canonicalize(&fetched.root).unwrap_or_else(|_| fetched.root.clone())
+                }
+                discover::Links::Followed => PathBuf::from("/"),
+            };
+            if !from.join("SKILL.md").is_file() || !discover::within(&from, &inside) {
                 checked.unchecked.push((
                     name,
                     format!("{skill_path} is no longer in {}", entry.source),
@@ -866,21 +961,33 @@ pub fn check(
                 continue;
             }
             let changes = changes(&target, &from);
-            if apply {
+            let hash = latest.unwrap_or_default();
+            if let Some(listed) = listed {
+                let as_listed = listed
+                    .iter()
+                    .any(|update| update.name == name && update.hash == hash);
+                if !as_listed {
+                    checked
+                        .unchecked
+                        .push((name, "it changed again since it was checked".to_string()));
+                    continue;
+                }
                 copy_into_place(&from, &target)?;
-                let mut entry = entry.clone();
-                entry.folder_hash = latest.unwrap_or_default();
+                // Read again and written as each is put in place, as installing does: a fetch can take minutes, and
+                // the lock read before it may since have gained or lost a skill, here or through the `skills` CLI.
+                let mut lock = read_lock(folders)?;
+                let mut entry = lock.get(&name).unwrap_or_else(|| entry.clone());
+                entry.folder_hash = hash.clone();
                 lock.set(&name, &entry, now);
+                lock.write(folders.lock())?;
             }
             checked.updates.push(Update {
                 name,
                 source: entry.source.clone(),
                 changes,
+                hash,
             });
         }
-    }
-    if apply && !checked.updates.is_empty() {
-        lock.write(folders.lock())?;
     }
     Ok(checked)
 }

@@ -3,7 +3,6 @@
 //! whole or as a source, fetches it off the window's thread, and installs the skills ticked.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use gpui_kit::component::checkbox::Checkbox;
 use patchbay_core::skills::{
@@ -55,15 +54,14 @@ pub struct SkillsState {
     _task: Option<Task<()>>,
 }
 
-/// Where skills go: the person's own folders when the app runs for real, the stand-in home otherwise.
-pub(super) fn skill_folders(cx: &App) -> Folders {
-    let home = client_home(cx);
-    let real = std::env::var_os("HOME").is_some_and(|own| Path::new(&own) == home);
-    if real {
-        Folders::from_env(home)
-    } else {
-        Folders::new(home)
-    }
+/// Where skills go: the person's own folders when the app runs for real, the stand-in home otherwise, with the
+/// folders chosen in Settings.
+pub(crate) fn skill_folders(cx: &App) -> Folders {
+    let folders = cx.try_global::<Running>().map_or_else(
+        || Folders::new(client_home(cx)),
+        |running| running.skill_folders.clone(),
+    );
+    folders.chosen_in(&crate::settings::current(cx))
 }
 
 impl MainView {
@@ -193,8 +191,20 @@ impl MainView {
         }
     }
 
+    /// Whether skills are being checked or updated, said so if they are. The lock is written as each update goes
+    /// in, so installing, removing or taking over a skill meanwhile waits for it rather than racing it.
+    fn still_checking(&self, window: &mut Window, cx: &mut App) -> bool {
+        if self.skills.checking {
+            Toast::new(t!("Wait for the skills to finish updating")).show(window, cx);
+        }
+        self.skills.checking
+    }
+
     /// Installs the skills ticked, for the clients the line names or every one installed.
     pub(super) fn install_skills(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.still_checking(window, cx) {
+            return;
+        }
         let folders = skill_folders(cx);
         let Some(Adding {
             state:
@@ -214,7 +224,7 @@ impl MainView {
             .filter(|found| chosen.contains(&found.name))
             .collect();
         let clients = request.clients_for(&folders);
-        match skills::install(&folders, preview, &found, &clients, &skills::now()) {
+        match skills::install(&folders, preview, &found, &clients, &skills::Stamp::now()) {
             Ok(installed) => {
                 let blocked = installed.iter().any(|skill| !skill.blocked.is_empty());
                 let first = installed
@@ -247,6 +257,9 @@ impl MainView {
 
     /// Removes the chosen skill, if the lock records it.
     pub(super) fn remove_chosen_skill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.still_checking(window, cx) {
+            return;
+        }
         let Some(skill) = self.chosen_skill().filter(|skill| skill.managed()) else {
             Toast::new(t!("Choose a skill Patchbay or the skills CLI installed")).show(window, cx);
             return;
@@ -273,6 +286,9 @@ impl MainView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.still_checking(window, cx) {
+            return;
+        }
         let folders = skill_folders(cx);
         let folders_to_take: Vec<String> = match which {
             Which::Chosen => self
@@ -298,12 +314,19 @@ impl MainView {
         }
         let (mut taken, mut kept, mut failed) = (Vec::new(), 0, Vec::new());
         for folder in &folders_to_take {
-            match skills::take_over(&folders, folder, &skills::now()) {
+            match skills::take_over(&folders, folder, &skills::Stamp::now()) {
                 Ok(done) => {
                     kept += done.kept.len();
                     taken.push(done);
                 }
-                Err(error) => failed.push(format!("{folder}: {error}")),
+                Err(error) => failed.push(
+                    t!(
+                        "%{skill}: %{error}",
+                        skill = folder,
+                        error = error.to_string()
+                    )
+                    .into_owned(),
+                ),
             }
         }
         let said = match taken.as_slice() {
@@ -317,7 +340,7 @@ impl MainView {
         if kept > 0 {
             // A copy that differs is someone's edit; it's never thrown away to make a link.
             Toast::new(t!(
-                "%{count} copies differ from the one in ~/.agents/skills, so they're left as they are",
+                "%{count} copies differ from the one in ~/.agents/skills, or hold what it leaves out, so they're left as they are",
                 count = kept
             ))
             .show(window, cx);
@@ -344,9 +367,50 @@ impl MainView {
             skills::unlink_client(&folders, &folder, client)
         };
         if let Err(error) = done {
-            Toast::error(error.to_string()).show(window, cx);
+            Toast::error(t!(
+                "Couldn't change %{client}'s skills: %{error}",
+                client = client.name(),
+                error = error.to_string()
+            ))
+            .show(window, cx);
         }
         self.sync_skills(cx);
+    }
+
+    /// Puts in place the updates listed for every skill, or for the one named, as the last check found them. With
+    /// none listed it checks instead, so what changes is always shown before it's applied.
+    pub(super) fn update_skills(
+        &mut self,
+        name: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let listed: Vec<Update> = self
+            .skills
+            .updates
+            .values()
+            .filter(|update| name.as_ref().is_none_or(|name| *name == update.name))
+            .cloned()
+            .collect();
+        let names: Vec<String> = name.into_iter().collect();
+        if listed.is_empty() {
+            self.check_skills(names, Checking::Report, window, cx);
+        } else {
+            self.check_skills(names, Checking::Apply(listed), window, cx);
+        }
+    }
+
+    /// Puts in place the update listed for the chosen skill.
+    pub(super) fn update_chosen_skill(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .chosen_skill()
+            .filter(|skill| skill.managed())
+            .map(|skill| skill.name.clone())
+        else {
+            Toast::new(t!("Choose a skill Patchbay or the skills CLI installed")).show(window, cx);
+            return;
+        };
+        self.update_skills(Some(name), window, cx);
     }
 
     /// Fetches the sources of every skill, or only `names`, off the window's thread, and says which have changed
@@ -363,14 +427,15 @@ impl MainView {
         }
         self.skills.checking = true;
         let folders = skill_folders(cx);
+        let applying = matches!(checking, Checking::Apply(_));
         let work = cx.background_spawn(async move {
-            skills::check(&folders, &names, checking, &skills::now())
+            skills::check(&folders, &names, checking, &skills::Stamp::now())
         });
         self.skills._task = Some(cx.spawn_in(window, async move |this, cx| {
             let checked = work.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.skills.checking = false;
-                this.finish_check(checked, checking, window, cx);
+                this.finish_check(checked, applying, window, cx);
             });
         }));
         cx.notify();
@@ -379,24 +444,22 @@ impl MainView {
     fn finish_check(
         &mut self,
         checked: Result<skills::Checked, SkillsError>,
-        checking: Checking,
+        applying: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match checked {
             Ok(checked) => {
                 let count = checked.updates.len();
-                let said = match (checking, count) {
+                let said = match (applying, count) {
                     (_, 0) if checked.unchecked.is_empty() => {
                         t!("Every skill is up to date").into_owned()
                     }
                     (_, 0) => t!("No updates found").into_owned(),
-                    (Checking::Apply, 1) => t!("Updated 1 skill").into_owned(),
-                    (Checking::Apply, count) => {
-                        t!("Updated %{count} skills", count = count).into_owned()
-                    }
-                    (Checking::Report, 1) => t!("1 skill has an update").into_owned(),
-                    (Checking::Report, count) => {
+                    (true, 1) => t!("Updated 1 skill").into_owned(),
+                    (true, count) => t!("Updated %{count} skills", count = count).into_owned(),
+                    (false, 1) => t!("1 skill has an update").into_owned(),
+                    (false, count) => {
                         t!("%{count} skills have updates", count = count).into_owned()
                     }
                 };
@@ -416,9 +479,13 @@ impl MainView {
                     };
                     Toast::error(said).key("skills-unchecked").show(window, cx);
                 }
-                if checking == Checking::Apply {
+                if applying {
                     for update in &checked.updates {
                         self.skills.updates.remove(&update.name);
+                    }
+                    // One that moved on again since it was listed is no longer what the list says.
+                    for (name, _) in &checked.unchecked {
+                        self.skills.updates.remove(name);
                     }
                 } else {
                     self.skills.updates = checked
@@ -454,7 +521,7 @@ impl MainView {
                 .on_click(cx.listener(|this, _, window, cx| this.run("skills.add", window, cx))),
         );
         let folders = skill_folders(cx);
-        let query = self.filter_text(Place::Skills, cx);
+        let query = Query::plain(&self.filter_text(Place::Skills, cx));
         let from = |skill: &Skill| match &skill.keeper {
             Keeper::Locked(entry) if entry.taken_over(&folders) => t!("This Mac").into_owned(),
             Keeper::Locked(entry) => entry.source.clone(),
@@ -466,19 +533,16 @@ impl MainView {
             .iter()
             .map(|skill| (skill, from(skill)))
             .filter(|(skill, from)| {
-                matches_filter(
-                    &query,
-                    &[
-                        &skill.name,
-                        skill.description.as_deref().unwrap_or(""),
-                        from,
-                    ],
-                )
+                query.matches(&[
+                    &skill.name,
+                    skill.description.as_deref().unwrap_or(""),
+                    from,
+                ])
             })
             .collect();
         // Skills whose name matches come before those only their description or source does.
         let mut shown = shown;
-        shown.sort_by_key(|(skill, _)| !matches_filter(&query, &[&skill.name]));
+        shown.sort_by_key(|(skill, _)| !query.matches(&[&skill.name]));
         let nothing_matches = shown.is_empty() && !self.skills.list.is_empty();
         let rows = shown.into_iter().map(|(skill, from)| {
             let folder = skill.folder.clone();
@@ -548,7 +612,6 @@ impl MainView {
             Keeper::Locked(_) => shell::badge(Tag::success()).child(t!("Installed").into_owned()),
             Keeper::Unmanaged => shell::badge(Tag::secondary()).child(t!("Your own").into_owned()),
         };
-        let name = skill.name.clone();
         let header = self
             .panel_header_beside(skill.name.clone(), badge.xsmall(), cx)
             .child(
@@ -561,13 +624,8 @@ impl MainView {
                                 .xsmall()
                                 .disabled(self.skills.checking)
                                 .label(t!("Update").into_owned())
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.check_skills(
-                                        vec![name.clone()],
-                                        Checking::Apply,
-                                        window,
-                                        cx,
-                                    );
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.run("skills.update-chosen", window, cx);
                                 })),
                         )
                     })
@@ -757,11 +815,7 @@ impl MainView {
                 section(t!("Source"), cx).child(
                     h_flex()
                         .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .child(Input::new(&adding.field).small().h(rems(24. / 13.))),
-                        )
+                        .child(div().flex_1().child(small_field(&adding.field)))
                         .child(
                             Button::new("find-skills")
                                 .xsmall()

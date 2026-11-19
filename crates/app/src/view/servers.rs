@@ -89,11 +89,11 @@ impl MainView {
             self.editor.as_ref().map(|editor| &editor.mode),
             Some(Editing::New)
         );
-        let query = self.filter_text(Place::Servers, cx);
+        let query = Query::servers(&self.filter_text(Place::Servers, cx));
         let shown: Vec<&ServerStatus> = self
             .servers
             .iter()
-            .filter(|server| matches_filter(&query, &[&server.name, &server.target]))
+            .filter(|server| query.keeps_server(server))
             .collect();
         let nothing_matches = shown.is_empty() && !self.servers.is_empty();
         v_flex()
@@ -252,6 +252,14 @@ impl MainView {
         let secrets = shown_secrets(server, &self.replacing);
         let replacing = self.replacing.contains(&name);
         let exposed = server.tools.iter().filter(|tool| tool.exposed).count();
+        // `is:write`, `is:off` and the like in the filter narrow the tools shown too.
+        let query = Query::servers(&self.filter_text(Place::Servers, cx));
+        let tools: Vec<&ToolStatus> = server
+            .tools
+            .iter()
+            .filter(|tool| !query.narrows_tools() || query.keeps_tool(tool))
+            .collect();
+        let narrowed = tools.len() < server.tools.len();
         let failed = match &server.status {
             Status::Failed { reason } => Some(reason.clone()),
             _ => None,
@@ -369,18 +377,27 @@ impl MainView {
                     v_flex()
                         .gap_1p5()
                         .child(hint(
-                            t!(
-                                "%{exposed} of %{count} given to clients",
-                                exposed = exposed,
-                                count = server.tools.len()
-                            ),
+                            if narrowed {
+                                t!(
+                                    "%{exposed} of %{count} given to clients; %{shown} match the filter",
+                                    exposed = exposed,
+                                    count = server.tools.len(),
+                                    shown = tools.len()
+                                )
+                            } else {
+                                t!(
+                                    "%{exposed} of %{count} given to clients",
+                                    exposed = exposed,
+                                    count = server.tools.len()
+                                )
+                            },
                             cx,
                         ))
                         .child(
                             h_flex()
                                 .gap_1()
                                 .flex_wrap()
-                                .children(server.tools.iter().map(|tool| {
+                                .children(tools.iter().map(|tool| {
                                     let chip = shell::code_chip(tool.name.clone(), cx);
                                     if tool.exposed {
                                         chip
@@ -554,7 +571,7 @@ impl MainView {
                         div()
                             .flex_1()
                             .max_w(rems(360. / 13.))
-                            .child(Input::new(field).small().h(rems(24. / 13.)).mask_toggle()),
+                            .child(small_field(field).mask_toggle()),
                     )
                     .child(
                         Button::new(SharedString::from(format!("save-{account}")))

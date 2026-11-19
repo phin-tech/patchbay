@@ -195,8 +195,9 @@ impl MainView {
         self.editor = None;
         // Servers taken over from a client leave it only once Patchbay has them, and it reaches them through
         // Patchbay from then on.
-        if let Some((client, taken)) = self.taking_over.take() {
-            self.finish_taking_over(client, &taken, window, cx);
+        if let Some(taking_over) = self.taking_over.take()
+            && self.finish_taking_over(taking_over, &names, window, cx)
+        {
             return;
         }
         Toast::new(said)
@@ -331,7 +332,7 @@ impl MainView {
                         .map(|(name, _, _)| name);
                     body.child(
                         section(t!("Team"), cx)
-                            .child(Input::new(team).small().h(rems(24. / 13.)))
+                            .child(small_field(team))
                             .when_some(replacing, |section, name| {
                                 section.child(
                                     div()

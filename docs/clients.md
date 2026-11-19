@@ -39,15 +39,31 @@ Every server at once, and one on Only these when you tick it.
 
 From a terminal: `patchbay connect <client> --servers linear,github --layout per-server`.
 
+## The patch bay
+
+The main window opens on the patch bay, a rack with a module for each tool on the left and each server on the right.
+A **cable** runs from a tool's jack to a server's for each server the tool is given: drag one from a server to a tool
+to give it that server, drag a plug to another tool to move it, or let it go over nothing to pull it out. Cables say
+what a tool gets; its **Connected** switch says whether it has Patchbay at all, as **Connect** and **Disconnect** do,
+and the buttons beside it choose its layout. Each of those is in the Clients menu too, for the tool chosen. Skills hang
+below the servers and are patched to tools the same way; one of your own is hard-wired, and stays as it is until it's
+taken over.
+
+Turn it off in **Settings ▸ General** to open on Servers instead.
+
 ## Servers a tool already has
 
-A tool that already has servers of its own shows them under **Its own**. **Take Over** (or **Take Over the Client's
+A tool that already has servers of its own shows them under **Its own**, and the first time you connect it, Patchbay
+offers to take them over. **Take Over** (or **Take Over the Client's
 Servers…** in the Servers menu) brings them into Patchbay: they open in Add Server as if pasted, so you see what
 Patchbay will add and which keys it takes out for the Keychain. Choose **Add**, and Patchbay adds them to your
-`patchbay.toml`, takes them out of the tool's config (keeping a backup beside it), and connects the tool if it wasn't,
-so it reaches them through Patchbay from then on. Every other tool you connect gets them too.
+`patchbay.toml`, takes them out of the tool's config, and connects the tool if it wasn't, so it reaches them through
+Patchbay from then on. Every other tool you connect gets them too. The tool's config as it was is kept beside it, as
+`<file>.patchbay-take-over-backup`.
 
-Only a tool's user-level servers are taken over; a Claude Code project's own servers stay with the project.
+Only the servers you add leave the tool: one you delete from the paste before choosing **Add** stays where it is. So
+does one Patchbay already has a server by the same name for, rather than replacing yours. Only a tool's user-level
+servers are taken over; a Claude Code project's own servers stay with the project.
 
 ## Skills
 

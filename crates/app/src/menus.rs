@@ -101,10 +101,22 @@ pub fn menus() -> Vec<Menu> {
             ],
         ),
         menu(
+            t!("Clients"),
+            vec![
+                run(t!("Connect Client"), "clients.connect"),
+                run(t!("Disconnect Client"), "clients.disconnect"),
+                MenuItem::separator(),
+                run(t!("One Entry"), "clients.layout-one"),
+                run(t!("An Entry for Each Server"), "clients.layout-separate"),
+                run(t!("Compact"), "clients.layout-compact"),
+            ],
+        ),
+        menu(
             t!("Skills"),
             vec![
                 run(t!("Add Skills…"), "skills.add"),
                 run(t!("Check for Skill Updates"), "skills.check"),
+                run(t!("Update Skill"), "skills.update-chosen"),
                 run(t!("Update All Skills"), "skills.update"),
                 MenuItem::separator(),
                 run(t!("Take Over Skill"), "skills.take-over"),

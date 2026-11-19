@@ -16,7 +16,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use patchbay_core::clients::{Choice, Choices, Client, Entry, Layout};
 use patchbay_core::paste::Pasted;
-use patchbay_gateway::{SecretNeeded, ServerStatus, Status};
+use patchbay_gateway::{SecretNeeded, ServerStatus, Status, ToolStatus};
 use rust_i18n::t;
 use typecase::Toast;
 use typecase::help::{HelpEvent, KeyHelp};
@@ -28,12 +28,14 @@ use crate::commands::{self, COMMANDS};
 use crate::gateway::Running;
 use crate::shortcuts::{CONTEXT, RunAction};
 use crate::{about, palette, restore, theme};
+use query::Query;
 
 mod clients;
 #[cfg(test)]
 use clients::Given;
 mod editor;
 mod form;
+mod query;
 mod rack;
 mod servers;
 mod share;
@@ -41,6 +43,7 @@ mod skills;
 
 pub use editor::Editing;
 use editor::Editor;
+pub(crate) use skills::skill_folders;
 
 /// A Typecase card over the window, which holds the keyboard until it's done.
 enum Card {
@@ -149,8 +152,8 @@ pub struct MainView {
     signing_in: BTreeSet<String>,
     /// Servers whose secrets are shown to be replaced, as a wrong or expired key is.
     replacing: BTreeSet<String>,
-    /// A client whose own servers, by name, the editor is adding, to take out of it once they're added.
-    pub taking_over: Option<(Client, Vec<String>)>,
+    /// A client whose own servers the editor is adding, to take out of it once they're added.
+    pub taking_over: Option<clients::TakingOver>,
     /// A field at the top of each place's list, narrowing it to what matches.
     filters: Filters,
     /// The patch bay: its Cables, hanging from frame to frame, and any being dragged.
@@ -160,6 +163,7 @@ pub struct MainView {
     _watch: Task<()>,
     _appearance: Subscription,
     _bounds: Subscription,
+    _settings: Subscription,
 }
 
 impl MainView {
@@ -240,6 +244,10 @@ impl MainView {
             _watch: watch,
             _appearance: appearance,
             _bounds: bounds,
+            // A skills folder chosen in Settings changes where each client's skills are, so they're read again.
+            _settings: cx.observe_global_in::<crate::settings::Prefs>(window, |this, _, cx| {
+                this.sync_skills(cx);
+            }),
         };
         view.sync(window, cx);
         view
@@ -284,6 +292,11 @@ impl MainView {
             "servers.add-team" => self.start_editing(Editing::Team, window, cx),
             "servers.export" => self.start_export(window, cx),
             "clients.take-over" => self.start_taking_over(window, cx),
+            "clients.connect" => self.power_chosen_client(true, window, cx),
+            "clients.disconnect" => self.power_chosen_client(false, window, cx),
+            "clients.layout-one" => self.lay_out_chosen_client(Layout::OneEntry, window, cx),
+            "clients.layout-separate" => self.lay_out_chosen_client(Layout::PerServer, window, cx),
+            "clients.layout-compact" => self.lay_out_chosen_client(Layout::Compact, window, cx),
             "servers.remove-team" => self.remove_chosen_team(window, cx),
             "servers.reload" => self.reload(window, cx),
             "servers.edit" => edit_manifest(cx),
@@ -302,12 +315,8 @@ impl MainView {
                 window,
                 cx,
             ),
-            "skills.update" => self.check_skills(
-                Vec::new(),
-                patchbay_core::skills::Checking::Apply,
-                window,
-                cx,
-            ),
+            "skills.update" => self.update_skills(None, window, cx),
+            "skills.update-chosen" => self.update_chosen_skill(window, cx),
             "skills.remove" => self.remove_chosen_skill(window, cx),
             "app.palette" => self.open_palette(window, cx),
             "app.keys" => self.open_keys(window, cx),
@@ -566,10 +575,7 @@ impl MainView {
             .py_1p5()
             .border_b_1()
             .border_color(cx.theme().border)
-            .children(
-                self.filter_for(place)
-                    .map(|filter| Input::new(filter).small().h(rems(24. / 13.))),
-            )
+            .children(self.filter_for(place).map(small_field))
     }
 
     /// Puts the keyboard in the filter of the place shown.
@@ -580,13 +586,9 @@ impl MainView {
     }
 }
 
-/// Whether every word of `query` is in one of `fields`, ignoring case: `aws cdk` matches `aws-cdk`.
-fn matches_filter(query: &str, fields: &[&str]) -> bool {
-    let fields: Vec<String> = fields.iter().map(|field| field.to_lowercase()).collect();
-    query
-        .to_lowercase()
-        .split_whitespace()
-        .all(|word| fields.iter().any(|field| field.contains(word)))
+/// A one-line field at the kit's small size. The kit's Input fills whatever height it's offered, so it's given one.
+fn small_field(state: &Entity<InputState>) -> Input {
+    Input::new(state).small().h(rems(24. / 13.))
 }
 
 /// A line saying what a choice means, small and quiet under it.

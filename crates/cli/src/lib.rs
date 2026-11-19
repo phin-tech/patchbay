@@ -75,7 +75,7 @@ const USAGE: &str = "usage: patchbay <command>
   --version, --help
 
 With no arguments, opens Patchbay. Your servers are in ~/.config/patchbay/patchbay.toml
-(XDG_CONFIG_HOME or PATCHBAY_HOME moves it).";
+(PATCHBAY_HOME moves it).";
 
 /// The usage, with the skills commands in their place.
 fn usage() -> String {
@@ -164,7 +164,10 @@ impl Command {
             }
             // Skills need no gateway or Keychain, so they run here, without the runtime.
             Command::Skills(command) => {
-                let folders = patchbay_core::skills::Folders::from_env(user_home());
+                // The folders chosen in Settings, which the app links into too, so the two keep one set.
+                let settings = patchbay_core::Settings::load(&Home::from_env().settings());
+                let folders =
+                    patchbay_core::skills::Folders::from_env(user_home()).chosen_in(&settings);
                 let cwd = std::env::current_dir()?;
                 if let Err(error) = command.run(&folders, &cwd, out) {
                     writeln!(out, "patchbay: {error:#}")?;

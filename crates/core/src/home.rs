@@ -49,19 +49,17 @@ impl Home {
         }
     }
 
-    /// `PATCHBAY_HOME` for both, or the folder in Application Support and `patchbay` in `XDG_CONFIG_HOME`
-    /// (`~/.config`).
+    /// `PATCHBAY_HOME` for both, or the folder in Application Support and `~/.config/patchbay`. Not
+    /// `XDG_CONFIG_HOME`: an app opened from the Finder, and a bridge a client starts, never see a shell's variables,
+    /// so the app and the command line would each read a different file.
     pub fn from_env() -> Home {
         if let Some(root) = std::env::var_os("PATCHBAY_HOME") {
             return Home::new(root);
         }
         let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("."), PathBuf::from);
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|value| !value.is_empty())
-            .map_or_else(|| home.join(".config"), PathBuf::from);
         Home::with_config(
             home.join("Library/Application Support/tech.phin.patchbay"),
-            config.join("patchbay"),
+            home.join(".config/patchbay"),
         )
     }
 
@@ -76,12 +74,24 @@ impl Home {
 
     /// The person's own manifest.
     pub fn manifest(&self) -> PathBuf {
-        self.config.join("patchbay.toml")
+        self.config_file("patchbay.toml", "patchbay.toml")
     }
 
     /// What's set in the Settings window.
     pub fn settings(&self) -> PathBuf {
-        self.config.join("config.toml")
+        self.config_file("config.toml", "settings.toml")
+    }
+
+    /// `name` in the config folder, or `old` in Application Support while it's still there and `name` isn't: a move
+    /// that failed leaves the file where it was, and it's read there until it moves, rather than the app starting
+    /// afresh in the config folder and hiding it.
+    fn config_file(&self, name: &str, old: &str) -> PathBuf {
+        let new = self.config.join(name);
+        let old = self.root.join(old);
+        if self.root != self.config && new.symlink_metadata().is_err() && old.is_file() {
+            return old;
+        }
+        new
     }
 
     /// Moves the settings and the manifest from where 0.1 kept them, in Application Support, to the
@@ -95,6 +105,7 @@ impl Home {
             .into_iter()
             .filter_map(|(old, new)| {
                 let (old, new) = (self.root.join(old), self.config.join(new));
+                // Checked here rather than through `manifest()`, which gives the old file until it's moved.
                 if !old.is_file() || new.symlink_metadata().is_ok() {
                     return None;
                 }
@@ -204,6 +215,20 @@ mod tests {
         assert!(home.move_old_files().is_empty());
         assert_eq!(std::fs::read_to_string(home.settings()).unwrap(), "new");
         assert!(home.root().join("settings.toml").exists());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_couldnt_be_moved_is_read_where_it_is() {
+        let root = scratch("unmoved");
+        let home = Home::with_config(root.join("support"), root.join("config"));
+        std::fs::write(home.root().join("patchbay.toml"), "[servers.x]\n").unwrap();
+        std::fs::write(home.root().join("settings.toml"), "").unwrap();
+        assert_eq!(home.manifest(), home.root().join("patchbay.toml"));
+        assert_eq!(home.settings(), home.root().join("settings.toml"));
+        assert!(home.move_old_files().is_empty());
+        assert_eq!(home.manifest(), home.config().join("patchbay.toml"));
+        assert_eq!(home.settings(), home.config().join("config.toml"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 

@@ -33,7 +33,12 @@ sees it. Add a skill once and every tool that reads skills has it too.
 - **Skills you made yourself, taken over.** A skill already in a tool's folder is listed as your own and left alone
   until you choose Take Over. Then Patchbay keeps one copy and links each tool to it, replacing only copies that are
   the same.
-- **Find anything.** Every list has a filter (⌘F): type `aws` or `linear` to narrow it.
+- **Patch it like a rack.** The main window opens on the patch bay: a module for each tool on the left, one for each
+  server on the right, and a cable for each server a tool gets. Drag a cable from a tool's jack to a server's to give
+  it that server, pull one out to take it away, and flip a tool's switch to connect it. Skills hang below, patched the
+  same way. Settings can turn it off.
+- **Find anything.** Every list has a filter (⌘F): type `aws` or `linear` to narrow it, or `is:write is:off` for the
+  tools that can change something and are turned off.
 - **Stays out of the way.** Close the window and the gateway keeps running from the menu bar, out of the Dock. Turn on
   Open at login in Settings and it's there whenever your tools are.
 

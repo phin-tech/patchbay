@@ -118,7 +118,7 @@ impl Lock {
     }
 
     /// Records `entry` for `name`, keeping when it was first installed and any fields the CLI added.
-    pub fn set(&mut self, name: &str, entry: &Entry, now: &str) {
+    pub fn set(&mut self, name: &str, entry: &Entry, now: &super::Stamp) {
         let skills = self.skills_mut();
         let mut fields = match skills.get(name) {
             Some(Value::Object(old)) => old.clone(),
@@ -127,7 +127,7 @@ impl Lock {
         let installed = fields
             .get("installedAt")
             .and_then(Value::as_str)
-            .map_or_else(|| now.to_string(), str::to_string);
+            .map_or_else(|| now.as_str().to_string(), str::to_string);
         let mut put = |key: &str, value: Option<&str>| match value {
             Some(value) => {
                 fields.insert(key.into(), Value::String(value.to_string()));
@@ -144,7 +144,7 @@ impl Lock {
         put("skillFolderHash", Some(&entry.folder_hash));
         put("pluginName", entry.plugin.as_deref());
         put("installedAt", Some(&installed));
-        put("updatedAt", Some(now));
+        put("updatedAt", Some(now.as_str()));
         skills.insert(name.to_string(), Value::Object(fields));
     }
 
@@ -156,8 +156,10 @@ impl Lock {
     pub fn write(&self, path: &Path) -> Result<(), SkillsError> {
         let text = serde_json::to_string_pretty(&Value::Object(self.root.clone()))
             .expect("a lock is always JSON");
-        crate::write_atomically(path, text.as_bytes())
-            .map_err(|error| SkillsError::Files(format!("{}: {error}", path.display())))
+        crate::write_atomically(path, text.as_bytes()).map_err(|error| SkillsError::Files {
+            kind: error.kind(),
+            message: format!("{}: {error}", path.display()),
+        })
     }
 }
 
@@ -179,7 +181,7 @@ mod tests {
         let mut lock = Lock::read(&path);
         let mut old = lock.get("old").unwrap();
         old.folder_hash = "def".into();
-        lock.set("old", &old, "now");
+        lock.set("old", &old, &"now".into());
         lock.set(
             "new",
             &Entry {
@@ -190,7 +192,7 @@ mod tests {
                 folder_hash: "123".into(),
                 ..Entry::default()
             },
-            "now",
+            &"now".into(),
         );
         lock.write(&path).unwrap();
         insta::assert_snapshot!(std::fs::read_to_string(&path).unwrap());

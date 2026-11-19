@@ -89,6 +89,9 @@ pub struct ServerStatus {
 pub struct ToolStatus {
     pub name: String,
     pub exposed: bool,
+    /// Whether the server says the tool only reads (MCP's `readOnlyHint`). One that says nothing may write, as MCP
+    /// takes it.
+    pub read_only: bool,
 }
 
 /// The gateway, shared by the HTTP endpoint, the app and its sheets.
@@ -230,6 +233,11 @@ impl Gateway {
                     .map(|tool| ToolStatus {
                         name: tool.name.to_string(),
                         exposed: server.tools.allows(&tool.name),
+                        read_only: tool
+                            .annotations
+                            .as_ref()
+                            .and_then(|annotations| annotations.read_only_hint)
+                            .unwrap_or(false),
                     })
                     .collect();
                 tools.sort_by_key(|tool| !tool.exposed);

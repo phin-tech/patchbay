@@ -41,11 +41,17 @@ own. Tools that read `~/.agents/skills` themselves need no link.
 | opencode | `~/.config/opencode/skills` |
 | Codex, pi | read `~/.agents/skills` itself |
 
+A tool that reads its skills somewhere else gets that folder in **Settings ▸ Skills**: **Choose…** picks it, and **Use
+Usual** goes back. New skills are linked there, by the app and `patchbay skills` alike; ones linked already stay where
+they are.
+
 A new skill goes to every tool Patchbay finds on your Mac, or only the ones a pasted line names with `-a`. Tick or
 untick a tool on the skill's page to give it the skill or take it away.
 
 Where each skill came from is kept in `~/.agents/.skill-lock.json`, the `skills` CLI's own record, which Patchbay adds
-to and never empties.
+to and never empties. Like the CLI, `patchbay skills` finds it in `$XDG_STATE_HOME/skills` when that's set, and
+opencode's folder in `$XDG_CONFIG_HOME`. The app, opened from the Finder, never sees those, so if you set them, set
+them for apps too (`launchctl setenv`) or the app and your terminal will each keep their own record.
 
 ## Skills of your own
 
@@ -62,8 +68,10 @@ Then you can choose which tools have it, or remove it.
 ## Updates
 
 **Check for Skill Updates** fetches each skill's source and marks the ones that have changed, with the files that
-differ. **Update** on a skill's page applies its update; **Update All Skills** applies every one. A skill is
-instructions an agent follows and code it may run, so look at what changed before you take it.
+differ. **Update** on a skill's page applies its update; **Update All Skills** applies every one listed, or checks
+first if nothing is. Only what was listed goes in: a skill whose source changed again since the check is left, and
+said so, for you to look at on the next one. A skill is instructions an agent follows and code it may run, so look at
+what changed before you take it.
 
 ## From a terminal
 
@@ -72,7 +80,7 @@ patchbay skills add vercel-labs/agent-skills --skill web-design-guidelines -a cl
 patchbay skills add owner/repo --list    # what's in it, without installing
 patchbay skills list                     # every skill, where it's from, and which tools have it
 patchbay skills check                    # which have changed at their source
-patchbay skills update                   # apply those changes
+patchbay skills update                   # list those changes, then apply them
 patchbay skills remove web-design-guidelines
 ```
 

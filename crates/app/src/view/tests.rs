@@ -78,6 +78,7 @@ fn a_client_given_an_entry_for_each_server_gets_one_and_keeps_up(cx: &mut TestAp
         let choice = Choice {
             profile: "default".to_string(),
             layout: Layout::PerServer,
+            ..Choice::default()
         };
         view.choose(Client::Pi, choice, window, cx);
         view.connect(Client::Pi, window, cx);
@@ -527,6 +528,74 @@ fn a_clients_own_servers_are_taken_over_into_your_manifest_and_out_of_its_config
     );
     assert!(Client::Cursor.own_servers(&home).is_empty());
     assert_eq!(Client::Cursor.entries_in(&home), ["patchbay"]);
+}
+
+#[gpui_kit::test]
+fn connecting_a_client_with_servers_of_its_own_offers_once_to_take_them_over(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = open(cx, "");
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    let config = Client::Cursor.config_path(&home);
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(
+        &config,
+        r#"{"mcpServers": {"linear": {"url": "https://mcp.linear.app/mcp"}}}"#,
+    )
+    .unwrap();
+    let offered = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let home = cx.global::<gateway::Running>().gateway.home().clone();
+            patchbay_core::clients::Choices::load(&home)
+                .get(Client::Cursor)
+                .offered_take_over
+        })
+    };
+    assert!(!offered(cx));
+    view.update_in(cx, |view, window, cx| {
+        view.connect(Client::Cursor, window, cx)
+    });
+    assert!(offered(cx), "offered the first time");
+    // Only an offer: the client keeps its own server until it's taken over.
+    assert_eq!(Client::Cursor.own_servers(&home)[0].0, "linear");
+}
+
+#[gpui_kit::test]
+fn a_server_taken_out_of_the_paste_stays_in_the_client_it_came_from(cx: &mut TestAppContext) {
+    let (view, cx) = open(
+        cx,
+        "[servers.github]\nurl = \"https://api.githubcopilot.com/mcp/\"\n",
+    );
+    let home = cx.update(|_, cx| cx.global::<gateway::Running>().client_home.clone());
+    let config = Client::Cursor.config_path(&home);
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    // GitHub is one Patchbay has already, so it's left; linear is taken out of the paste before saving.
+    std::fs::write(
+        &config,
+        r#"{"mcpServers": {"github": {"command": "gh-mcp"}, "linear": {"url": "https://mcp.linear.app/mcp"}, "notion": {"url": "https://mcp.notion.com/mcp"}}}"#,
+    )
+    .unwrap();
+    view.update_in(cx, |view, window, cx| {
+        view.sync(window, cx);
+        view.client = Some(Client::Cursor);
+        view.run("clients.take-over", window, cx);
+        view.fill_paste(
+            r#"{"mcpServers": {"notion": {"url": "https://mcp.notion.com/mcp"}}}"#,
+            window,
+            cx,
+        );
+        view.save_editor(window, cx);
+    });
+    let mine = manifest(cx);
+    assert!(mine.contains("[servers.notion]"), "{mine}");
+    assert!(!mine.contains("gh-mcp"), "Patchbay's github stays: {mine}");
+    let mut left: Vec<String> = Client::Cursor
+        .own_servers(&home)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    left.sort();
+    assert_eq!(left, ["github", "linear"]);
 }
 
 /// The servers `client` is given now, as the patch bay shows them plugged in.
