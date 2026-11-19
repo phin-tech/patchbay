@@ -1,16 +1,18 @@
 //! The patch bay's Cables, kept from frame to frame so they can swing, and painted as sagging patch leads with a plug
 //! at each end. The hanging is Corkboard's Strings (`patchbay_core::strand`).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use gpui_kit::*;
 use patchbay_core::strand::{self, Point as Spot, Strand};
 
-/// A Cable to hang: whose it is (`client/server`), its colour, and the jacks it's plugged into.
+use super::drag::Pair;
+
+/// A Cable to hang: the client and what it goes to, its colour, and the jacks it's plugged into.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lead {
-    pub key: String,
+    pub key: Pair,
     pub color: Hsla,
     pub from: Spot,
     pub to: Spot,
@@ -18,7 +20,8 @@ pub struct Lead {
 
 #[derive(Default)]
 pub struct Cables {
-    strands: HashMap<String, (Hsla, Strand)>,
+    /// Each Cable by what it joins, in a steady order, so the same Cable is always drawn over the same others.
+    strands: BTreeMap<Pair, (Hsla, Strand)>,
     /// When the last frame was, while any Cable is moving.
     clock: Option<Instant>,
     /// Time not yet stepped, so steps stay the same length whatever the frame rate.
@@ -82,10 +85,8 @@ impl Cables {
 
     /// Each Cable's colour and points, in a steady order so the same Cable is always drawn over the same others.
     pub fn shapes(&self) -> Vec<(Hsla, Vec<Spot>)> {
-        let mut keys: Vec<&String> = self.strands.keys().collect();
-        keys.sort();
-        keys.into_iter()
-            .filter_map(|key| self.strands.get(key))
+        self.strands
+            .values()
             .map(|(color, strand)| (*color, strand.points().to_vec()))
             .collect()
     }
@@ -178,13 +179,15 @@ fn shine(color: Hsla) -> Hsla {
 
 #[cfg(test)]
 mod tests {
+    use super::super::drag::Port;
     use super::{Cables, Lead, Motion};
     use gpui_kit::hsla;
+    use patchbay_core::clients::Client;
     use patchbay_core::strand::Point;
 
-    fn lead(key: &str) -> Lead {
+    fn lead(server: &str) -> Lead {
         Lead {
-            key: key.to_string(),
+            key: (Client::Pi, Port::Server(server.to_string())),
             color: hsla(0., 0.8, 0.5, 1.),
             from: Point::new(0., 0.),
             to: Point::new(200., 40.),
@@ -194,21 +197,21 @@ mod tests {
     #[test]
     fn a_cable_plugged_in_still_hangs_at_rest_at_once() {
         let mut cables = Cables::default();
-        assert!(!cables.update(&[lead("pi/linear")], Motion::Still));
+        assert!(!cables.update(&[lead("linear")], Motion::Still));
         assert_eq!(cables.shapes().len(), 1);
     }
 
     #[test]
     fn a_cable_plugged_in_swinging_falls_into_its_sag_over_frames() {
         let mut cables = Cables::default();
-        assert!(cables.update(&[lead("pi/linear")], Motion::Swing));
+        assert!(cables.update(&[lead("linear")], Motion::Swing));
     }
 
     #[test]
     fn a_cable_no_longer_wanted_is_unplugged() {
         let mut cables = Cables::default();
-        cables.update(&[lead("pi/linear"), lead("pi/github")], Motion::Still);
-        cables.update(&[lead("pi/github")], Motion::Still);
+        cables.update(&[lead("linear"), lead("github")], Motion::Still);
+        cables.update(&[lead("github")], Motion::Still);
         assert_eq!(cables.shapes().len(), 1);
     }
 }

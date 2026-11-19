@@ -135,14 +135,6 @@ fn wired(skill: &Skill, client: Client, folders: &Folders) -> Option<String> {
     }
 }
 
-/// A Cable's key among the rack's: whose it is and where it goes.
-fn key((client, port): &Pair) -> String {
-    match port {
-        Port::Server(name) => format!("{}/{name}", client.slug()),
-        Port::Skill(folder) => format!("{}/skill:{folder}", client.slug()),
-    }
-}
-
 /// A client's letter on the rack, `A` for the first shown, which its jack on each server's module carries too.
 fn letter(at: usize) -> String {
     char::from(b'A' + (at % 26) as u8).to_string()
@@ -368,7 +360,7 @@ impl MainView {
                 }
                 let (from, to) = rack.cable(client, server)?;
                 Some(Lead {
-                    key: key(&pair),
+                    key: pair.clone(),
                     color: lead_color(pair.0),
                     from,
                     to,
@@ -394,7 +386,7 @@ impl MainView {
                     lead_color(row.client)
                 };
                 leads.push(Lead {
-                    key: key(&pair),
+                    key: pair.clone(),
                     color,
                     from,
                     to,
@@ -410,13 +402,14 @@ impl MainView {
             .filter(|drag| drag.moved || drag.held.is_some())
             && let Some(anchor) = self.rack.jack(drag.fixed(), &drag.pressed, &self.servers)
         {
-            // Keyed as the Cable picked up, so it swings on from where it hung rather than starting again.
+            // Keyed as the Cable picked up, so it swings on from where it hung rather than starting again; a new one
+            // by the jack it's drawn from, which holds no Cable yet.
             let (from, to) = match drag.fixed() {
                 Side::Client => (anchor, drag.at),
                 Side::Server => (drag.at, anchor),
             };
             leads.push(Lead {
-                key: held.as_ref().map_or_else(|| "dragged".to_string(), key),
+                key: held.clone().unwrap_or_else(|| drag.pressed.clone()),
                 color: lead_color(drag.pressed.0),
                 from,
                 to,
